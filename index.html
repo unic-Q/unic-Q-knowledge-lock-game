@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>四骑士知识锁 Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hud">
+      <div>
+        <h1>四骑士知识锁 Demo</h1>
+        <p id="roomTitle">Loading</p>
+      </div>
+      <div class="status">
+        <span id="formLabel">无头盔</span>
+        <span id="hintLabel">长按 Space 选骑士</span>
+      </div>
+    </section>
+    <canvas id="game" width="960" height="540"></canvas>
+    <section class="footer">
+      <span>无头盔：← → 移动，↑ 跳跃，↓ 下落平台</span>
+      <span>第2关头盔可拾取也可跳过；小旗子是存档点，R 回到最近旗子</span>
+    </section>
+    <pre id="debugPanel" class="debug-panel"></pre>
+  </main>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

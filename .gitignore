@@ -1,0 +1,6 @@
+.agents/
+.obsidian/
+debug-state.json
+*.zip
+*.rar
+*.7z

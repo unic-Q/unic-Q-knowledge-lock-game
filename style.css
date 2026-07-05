@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+  --bg: #18212c;
+  --panel: #232d3a;
+  --line: #3b4757;
+  --text: #f1f4f8;
+  --muted: #a9b4c3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.shell {
+  width: min(100%, 1040px);
+}
+
+.hud,
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.hud {
+  margin-bottom: 12px;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  text-wrap: balance;
+}
+
+#roomTitle,
+.status,
+.footer {
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.status,
+.footer span {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status span,
+.footer span {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  background: #1b2633;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.debug-panel {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 10;
+  min-width: 220px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(59, 71, 87, 0.85);
+  border-radius: 6px;
+  background: rgba(24, 33, 44, 0.82);
+  color: #dfe8ed;
+  font: 12px/1.45 Consolas, "Microsoft YaHei", monospace;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.footer {
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .hud,
+  .footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
