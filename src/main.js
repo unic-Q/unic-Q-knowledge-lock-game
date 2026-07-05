@@ -31,6 +31,7 @@ const state = {
   helmetHeld: 0,
   helmetOwned: false,
   choosing: false,
+  greenAfterimageMemory: false,
   worldRot: 0,
   shake: 0,
   raisedFlags: new Set(),
@@ -93,7 +94,10 @@ function switchForm(next) {
   if (state.form === "none" && next === "none") return;
   if (state.form !== "none" && next === "none") return;
   const wasWhite = state.form === "white";
+  const wasGreen = state.form === "green";
+  if (wasGreen) state.greenAfterimageMemory = state.player.greenAfterimage;
   state.form = next;
+  if (next === "green") state.player.greenAfterimage = state.greenAfterimageMemory;
   state.player.redQte = null;
   state.player.redDash = null;
   state.player.hook = null;
