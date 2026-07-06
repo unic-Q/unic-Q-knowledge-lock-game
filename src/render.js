@@ -44,6 +44,76 @@ function drawHelmet(ctx, item) {
   ctx.fillRect(item.x + 5, item.y + 15, 14, 3);
 }
 
+function drawAbility(ctx, item) {
+  const colors = { green: "#7fa083", red: "#e84d4d", white: "#f4f2e6", black: "#252632" };
+  ctx.fillStyle = colors[item.form] || "#f4c95d";
+  ctx.beginPath();
+  ctx.arc(item.x + item.w / 2, item.y + item.h / 2, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f4c95d";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawHazard(ctx, h) {
+  if (h.type === "electric") {
+    ctx.strokeStyle = "#8ee6ff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let x = h.x + 3; x < h.x + h.w; x += 8) {
+      const y = h.y + ((x / 8) % 2 ? 8 : 24);
+      if (x === h.x + 3) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    return;
+  }
+  ctx.fillStyle = "#9c3038";
+  ctx.beginPath();
+  ctx.moveTo(h.x, h.y + h.h);
+  ctx.lineTo(h.x + h.w / 2, h.y + 4);
+  ctx.lineTo(h.x + h.w, h.y + h.h);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawEnemy(ctx, e) {
+  if (!e.alive) return;
+  ctx.fillStyle = "#3f273f";
+  ctx.fillRect(e.x, e.y, e.w, e.h);
+  ctx.fillStyle = "#f4c95d";
+  ctx.fillRect(e.x + 5, e.y + 8, 4, 4);
+  ctx.fillRect(e.x + e.w - 9, e.y + 8, 4, 4);
+}
+
+function drawSwitch(ctx, s) {
+  ctx.fillStyle = s.pressed ? "#74c476" : "#d6c08a";
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+  ctx.strokeStyle = "#314252";
+  ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+}
+
+function drawGate(ctx, g) {
+  if (g.open) return;
+  drawRect(ctx, g, "#3c4a56", "#f4c95d");
+}
+
+function drawCracks(ctx, r, level) {
+  if (!level) return;
+  ctx.strokeStyle = level > 1 ? "#f4c95d" : "#d8b56b";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(r.x + 8, r.y + 7);
+  ctx.lineTo(r.x + 16, r.y + 16);
+  ctx.lineTo(r.x + 10, r.y + 26);
+  if (level > 1) {
+    ctx.moveTo(r.x + 22, r.y + 6);
+    ctx.lineTo(r.x + 15, r.y + 18);
+    ctx.lineTo(r.x + 25, r.y + 28);
+  }
+  ctx.stroke();
+}
+
 function drawPlagueStain(ctx, stain, alpha = 1) {
   if (Number.isFinite(stain.a) && Number.isFinite(stain.b)) {
     drawPlagueSegment(ctx, stain, alpha);
@@ -123,18 +193,27 @@ export function draw(ctx, state) {
   ctx.fillStyle = "#dfe8ed";
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-  for (const b of room.blocks) if (!b.broken) drawRect(ctx, transformedRect(state, b), "#607487", "#314252");
+  for (const b of room.blocks) if (!b.broken) {
+    const r = transformedRect(state, b);
+    drawRect(ctx, r, "#607487", "#314252");
+    drawCracks(ctx, r, b.crackLevel || 0);
+  }
   for (const b of room.platforms) drawRect(ctx, transformedRect(state, b), "#758698", "#40505f");
   for (const b of room.cracks) if (!b.broken) drawRect(ctx, transformedRect(state, b), "#774849", "#c87c7d");
   for (const b of room.erode) if (!b.broken) {
     const r = transformedRect(state, b);
     drawRect(ctx, r, `rgba(94,82,50,${0.35 + b.hp * 0.55})`, "#bda366");
+    drawCracks(ctx, r, b.crackLevel || 0);
     ctx.fillStyle = "#15130f";
     ctx.fillRect(r.x + 6, r.y + 6, (r.w - 12) * Math.max(0, b.hp), 4);
   }
   for (const b of room.hidden) {
     if (isGreenAfterimage(state)) drawRect(ctx, transformedRect(state, b), "rgba(127,160,131,0.6)", "#b8dbc0");
   }
+  for (const g of room.gates || []) drawGate(ctx, transformedRect(state, g));
+  for (const h of room.hazards || []) drawHazard(ctx, transformedRect(state, h));
+  for (const s of room.switches || []) drawSwitch(ctx, s);
+  for (const e of room.enemies || []) drawEnemy(ctx, e);
   for (const a of room.anchors) {
     ctx.fillStyle = "#f4f2e6";
     ctx.beginPath();
@@ -158,6 +237,7 @@ export function draw(ctx, state) {
   for (const g of player.graves) drawRect(ctx, { x: g.x, y: g.y, w: 28, h: 32 }, "#617064", "#a4bea8");
   if (room.flag) drawFlag(ctx, transformedRect(state, room.flag), state.raisedFlags.has(room.id), room.flagProgress ?? 1);
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken) drawHelmet(ctx, room.helmet);
+  for (const item of room.abilityPickups || []) if (!item.taken && !state.unlockedForms?.has(item.form)) drawAbility(ctx, item);
 
   if (player.hook && player.hookTime > 0) {
     ctx.strokeStyle = player.hook.hit ? "#f4f2e6" : "rgba(244,242,230,0.45)";
@@ -180,7 +260,15 @@ export function draw(ctx, state) {
   ctx.save();
   if (isGreenAfterimage(state)) ctx.globalAlpha = 0.3;
   ctx.fillStyle = state.form === "green" && !isGreenAfterimage(state) ? "#56735c" : FORMS[state.form].color;
-  ctx.fillRect(player.x, player.y, player.w, player.h);
+  if (player.rollTimer > 0) {
+    ctx.save();
+    ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+    ctx.rotate(player.facing * (0.8 - player.rollTimer * 5));
+    ctx.fillRect(-player.w / 2, -player.h * 0.35, player.w, player.h * 0.7);
+    ctx.restore();
+  } else {
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+  }
   ctx.strokeStyle = "rgba(17,25,35,0.7)";
   ctx.lineWidth = 1;
   ctx.strokeRect(player.x + 0.5, player.y + 0.5, player.w - 1, player.h - 1);

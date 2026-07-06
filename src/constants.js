@@ -16,10 +16,17 @@ export const GRAVITY = 1900;
 export const MOVE = 250;
 export const JUMP = 650;
 
+export const ROLL_SPEED = 520;
+export const ROLL_UP = 120;
+export const ROLL_TIME = 0.34;
+export const ROLL_COOLDOWN = 0.82;
+export const ROLL_HAZARD_PAD = 0.1;
+
 export const RED_DASH_DISTANCE = TILE * 4;
 export const RED_DASH_TIME = 0.22;
 export const RED_QTE_TIME = 0.28;
 export const RED_QTE_READY = 0.45;
+export const RED_KILL_QTE_BONUS = 0.18;
 
 export const WHITE_SURFACE_SPEED = 185;
 export const WHITE_SNAP = 24;
@@ -28,8 +35,8 @@ export const WHITE_HOOK_PULL = 520;
 export const WHITE_HOOK_HOLD = 0.5;
 export const WHITE_HOOK_AIM_BIAS = 0.45;
 
-export const ERODE_RATE = 0.22;
-export const ERODE_FAST = 1.25;
+export const ERODE_RATE = 1 / 6;
+export const ERODE_FAST = 1;
 
 export const FORMS = {
   none: { name: "无头盔", color: "#b8c7d8" },

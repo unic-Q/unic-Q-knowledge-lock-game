@@ -148,52 +148,120 @@ function applyRoomPattern(grid, id) {
   }
   if (id === 2) return;
   if (id === 3) {
-    line(grid, 6, 9, 8);
-    line(grid, 16, 20, 8);
-    line(grid, 23, 25, 7);
-    pillar(grid, 13, 6, 9);
+    line(grid, 5, 8, 8);
+    line(grid, 12, 14, 7);
+    line(grid, 18, 21, 8, "!");
+    line(grid, 22, 25, 8);
+    put(grid, 11, 8, "G");
     return;
   }
   if (id === 4) {
-    pillar(grid, 9, 4, 9);
-    line(grid, 9, 18, 4);
-    pillar(grid, 18, 4, 9);
+    line(grid, 5, 7, 8);
+    line(grid, 10, 12, 8, "!");
+    line(grid, 14, 17, 8, "!");
+    line(grid, 19, 25, 8);
+    line(grid, 11, 19, 5, "~");
     return;
   }
   if (id === 5) {
-    line(grid, 7, 11, 8);
-    line(grid, 16, 20, 7);
-    for (let x = 12; x <= 15; x += 1) put(grid, x, ROOM_FLOOR - 1, "P");
+    line(grid, 5, 9, 8);
+    put(grid, 10, 9, "K");
+    put(grid, 18, 9, "D");
+    line(grid, 19, 24, 7);
+    line(grid, 12, 16, 6);
     return;
   }
   if (id === 6) {
-    line(grid, 6, 9, 8);
-    put(grid, 13, 5, "A");
-    line(grid, 19, 22, 6);
-    put(grid, 24, 4, "A");
+    line(grid, 5, 8, 8);
+    line(grid, 12, 15, 7);
+    put(grid, 16, 6, "R");
+    line(grid, 20, 25, 8);
+    line(grid, 9, 11, 8, "!");
     return;
   }
   if (id === 7) {
-    line(grid, 6, 8, 8);
-    line(grid, 14, 16, 6);
-    line(grid, 22, 24, 8);
+    line(grid, 5, 8, 8);
+    put(grid, 12, 9, "M");
+    put(grid, 16, 9, "M");
+    line(grid, 19, 25, 8);
+    line(grid, 10, 18, 6);
     return;
   }
   if (id === 8) {
-    line(grid, 5, 8, 8);
-    line(grid, 12, 15, 6);
-    line(grid, 19, 22, 5);
+    line(grid, 4, 7, 8);
+    line(grid, 10, 12, 6);
+    line(grid, 15, 17, 8);
+    line(grid, 20, 22, 6);
+    put(grid, 13, 7, "M");
+    put(grid, 18, 5, "M");
+    line(grid, 23, 25, 8);
     return;
   }
   if (id === 9) {
-    line(grid, 8, 11, 8);
-    line(grid, 17, 20, 7, "H");
-    line(grid, 23, 26, 6);
+    line(grid, 5, 8, 5);
+    line(grid, 20, 25, 5);
+    put(grid, 22, 5, "K");
+    put(grid, 26, 7, "D");
+    line(grid, 10, 18, 8, "!");
+    put(grid, 13, 8, "M");
     return;
   }
   if (id === 10) {
-    line(grid, 8, 21, 7, "E");
-    line(grid, 12, 15, 5);
+    line(grid, 5, 7, 8);
+    line(grid, 10, 13, 7);
+    put(grid, 14, 6, "W");
+    line(grid, 18, 25, 8, "!");
+    return;
+  }
+  if (id === 11) {
+    line(grid, 5, 8, 8);
+    pillar(grid, 12, 5, 8);
+    line(grid, 12, 18, 5);
+    pillar(grid, 18, 5, 8);
+    line(grid, 21, 25, 8);
+    return;
+  }
+  if (id === 12) {
+    line(grid, 6, 10, 8);
+    put(grid, 13, 9, "M");
+    put(grid, 17, 9, "M");
+    line(grid, 20, 25, 8);
+    line(grid, 11, 19, 6, "!");
+    return;
+  }
+  if (id === 13) {
+    line(grid, 5, 8, 8);
+    line(grid, 11, 15, 6, "~");
+    put(grid, 16, 9, "K");
+    put(grid, 18, 9, "D");
+    put(grid, 20, 9, "M");
+    line(grid, 21, 25, 8);
+    return;
+  }
+  if (id === 14) {
+    line(grid, 5, 8, 8);
+    line(grid, 11, 14, 7);
+    put(grid, 15, 6, "B");
+    line(grid, 18, 25, 8);
+    line(grid, 9, 11, 8, "!");
+    return;
+  }
+  if (id === 15) {
+    line(grid, 5, 9, 8);
+    line(grid, 11, 14, 9, "E");
+    line(grid, 15, 18, 8);
+    put(grid, 20, 9, "M");
+    line(grid, 21, 25, 8);
+    return;
+  }
+  if (id === 16) {
+    line(grid, 5, 8, 8);
+    put(grid, 10, 9, "K");
+    line(grid, 11, 13, 8, "~");
+    put(grid, 15, 9, "M");
+    line(grid, 16, 18, 9, "E");
+    put(grid, 21, 9, "D");
+    line(grid, 22, 25, 8);
     return;
   }
 
@@ -238,6 +306,11 @@ export function parseRoom(data) {
   const anchors = [];
   const erode = [];
   const plagueHazards = [];
+  const hazards = [];
+  const enemies = [];
+  const switches = [];
+  const gates = [];
+  const abilityPickups = [];
   data.blocks.forEach((row, y) => {
     [...row].forEach((cell, x) => {
       const b = { x: x * TILE, y: y * TILE, w: TILE, h: TILE, hp: 1, maxHp: 1, sink: 0, broken: false };
@@ -246,6 +319,12 @@ export function parseRoom(data) {
       if (cell === "X") cracks.push({ ...b, hp: 0.45, maxHp: 0.45 });
       if (cell === "H") hidden.push(b);
       if (cell === "E") erode.push({ ...b, hp: 0.75, maxHp: 0.75 });
+      if (cell === "!") hazards.push({ ...b, type: "spike" });
+      if (cell === "~") hazards.push({ ...b, type: "electric" });
+      if (cell === "M") enemies.push({ x: b.x + 4, y: b.y + 7, w: TILE - 8, h: TILE - 7, alive: true });
+      if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false });
+      if (cell === "D") gates.push({ ...b, open: false });
+      if ("GRWB".includes(cell)) abilityPickups.push({ x: b.x + 4, y: b.y + 4, w: 24, h: 24, form: { G: "green", R: "red", W: "white", B: "black" }[cell], taken: false });
       if (cell === "A") anchors.push({ x: b.x + TILE / 2, y: b.y + TILE / 2 });
       if (cell === "P") {
         plagueHazards.push({
@@ -263,5 +342,5 @@ export function parseRoom(data) {
       }
     });
   });
-  return { ...data, blocks, platforms, cracks, hidden, anchors, erode, plagueHazards };
+  return { ...data, blocks, platforms, cracks, hidden, anchors, erode, plagueHazards, hazards, enemies, switches, gates, abilityPickups };
 }

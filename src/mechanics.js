@@ -2,6 +2,7 @@
 
 import {
   GRAVITY, MOVE, JUMP, RED_DASH_DISTANCE, RED_DASH_TIME, RED_QTE_TIME, RED_QTE_READY,
+  RED_KILL_QTE_BONUS, ROLL_SPEED, ROLL_UP, ROLL_TIME,
   WHITE_SURFACE_SPEED, WHITE_HOOK_RANGE, WHITE_HOOK_PULL, WHITE_HOOK_HOLD,
   WHITE_SNAP, ERODE_RATE, ERODE_FAST,
 } from "./constants.js";
@@ -12,21 +13,31 @@ import {
 
 export function updateNone(state, input, dt) {
   const { player } = state;
+  player.rollCooldown = Math.max(0, player.rollCooldown - dt);
+  player.rollTimer = Math.max(0, player.rollTimer - dt);
+  if (input.space && !state.helmetOwned && player.rollCooldown <= 0) {
+    const dir = input.left ? -1 : input.right ? 1 : player.facing || 1;
+    player.facing = dir;
+    player.rollTimer = ROLL_TIME;
+    player.rollCooldown = 0.82;
+    player.vx = dir * ROLL_SPEED;
+    player.vy = Math.min(player.vy, -ROLL_UP);
+  }
   if (input.left) {
-    player.vx = -MOVE;
+    if (player.rollTimer <= 0) player.vx = -MOVE;
     player.facing = -1;
   } else if (input.right) {
-    player.vx = MOVE;
+    if (player.rollTimer <= 0) player.vx = MOVE;
     player.facing = 1;
   } else {
-    player.vx *= 0.78;
+    player.vx *= player.rollTimer > 0 ? 0.96 : 0.78;
   }
   const nearWall = activeBlocks(state).some((b) =>
     (Math.abs(player.x + player.w - b.x) < 4 || Math.abs(player.x - (b.x + b.w)) < 4) &&
     player.y + player.h > b.y + 4 && player.y < b.y + b.h - 2
   );
   if (nearWall && !player.onGround && (input.left || input.right)) player.vy = Math.min(player.vy, 150);
-  if (input.up && (player.jumps < 2 || player.coyote > 0)) {
+  if (input.up && player.rollTimer <= 0 && (player.jumps < 2 || player.coyote > 0)) {
     const boost = Math.min(120, Math.max(0, player.vy - 680) * 0.25);
     player.vy = -JUMP - boost;
     player.jumps += 1;
@@ -44,6 +55,7 @@ export function updateWhite(state, input, dt) {
   const surface = findWhiteSurface(state);
   if (surface) {
     const previousSurface = player.whiteSurface;
+    const previousBody = { x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague };
     player.whiteSurface = { nx: surface.nx, ny: surface.ny, block: surface.block };
     snapWhiteToSurface(player, surface);
     const dir = input.right ? 1 : input.left ? -1 : 0;
@@ -63,9 +75,10 @@ export function updateWhite(state, input, dt) {
     if (dir !== 0) {
       player.facing = dir;
       if (previousSurface && (previousSurface.nx !== player.whiteSurface.nx || previousSurface.ny !== player.whiteSurface.ny)) {
-        addPlagueSegment(player, player.whiteSurface, true);
+        addPlagueSegment(previousBody, previousSurface, true);
       }
-      addPlagueSegment(player, player.whiteSurface);
+      addPlagueSegment(previousBody, previousSurface || player.whiteSurface);
+      trimPlague(player);
     }
   } else {
     player.whiteSurface = null;
@@ -180,6 +193,7 @@ function placeWhiteOnSurface(player, surface) {
 }
 
 function addPlagueSegment(player, surface, corner = false) {
+  if (!surface) return;
   const tx = -surface.ny;
   const ty = surface.nx;
   const contact = contactInterval(player, surface);
@@ -217,6 +231,23 @@ function addPlagueSegment(player, surface, corner = false) {
     seed: player.plague.length,
     life: 999,
   });
+}
+
+function trimPlague(player) {
+  const maxLength = 32 * 20;
+  let total = player.plague.reduce((sum, p) => sum + Math.abs(p.b - p.a), 0);
+  while (total > maxLength && player.plague.length) {
+    const first = player.plague[0];
+    const len = Math.abs(first.b - first.a);
+    const excess = total - maxLength;
+    if (excess >= len) {
+      player.plague.shift();
+      total -= len;
+    } else {
+      first.a += excess;
+      total -= excess;
+    }
+  }
 }
 
 function contactInterval(player, surface) {
@@ -374,7 +405,9 @@ export function updateRed(state, input, dt) {
   if (!dir || player.stun > 0) return;
 
   if (player.redQte) {
-    if (player.redQte.t < RED_QTE_TIME * RED_QTE_READY) {
+    const ready = Math.max(0.2, RED_QTE_READY - player.redQteBonus);
+    player.redQteBonus = Math.max(0, player.redQteBonus - RED_KILL_QTE_BONUS * 0.25);
+    if (player.redQte.t < RED_QTE_TIME * ready) {
       redBurnout(state);
       return;
     }
@@ -391,7 +424,6 @@ function startRedDash(state, dir) {
   player.vy = dir[1] * (RED_DASH_DISTANCE / RED_DASH_TIME) * 2.6;
   player.redDash = { dx: dir[0], dy: dir[1], name: dir[2], t: 0, lastEase: 0, gravityVy: 0 };
   player.redQte = { t: 0 };
-  if (dir[2] === "down") breakCracks(state, 68);
 }
 
 function redBurnout(state) {
@@ -411,7 +443,6 @@ function explode(state) {
   state.player.redQte = null;
   state.player.redDash = null;
   state.shake = 14;
-  breakCracks(state, 110);
 }
 
 function breakCracks(state, radius) {
@@ -510,10 +541,11 @@ function erodeBelow(state, amount) {
 }
 
 function erodeBlock(target, amount) {
-  target.hp -= amount;
   const maxHp = target.maxHp || 1;
+  target.hp -= amount * maxHp;
   const progress = Math.max(0, Math.min(1, 1 - target.hp / maxHp));
-  target.sink = progress * 26;
+  target.crackLevel = progress >= 2 / 3 ? 2 : progress >= 1 / 3 ? 1 : 0;
+  target.sink = 0;
   if (target.hp <= 0) {
     target.sink = 32;
     target.broken = true;

@@ -20,6 +20,7 @@ const keys = new Set();
 let prevKeys = new Set();
 let lastTime = 0;
 let debugSendTimer = 0;
+let audioCtx = null;
 
 const state = {
   worldRooms,
@@ -30,6 +31,7 @@ const state = {
   selectedForm: "white",
   helmetHeld: 0,
   helmetOwned: false,
+  unlockedForms: new Set(),
   choosing: false,
   greenAfterimageMemory: false,
   worldRot: 0,
@@ -50,6 +52,8 @@ function inputState() {
     upHeld: keys.has("ArrowUp") || keys.has("KeyW"),
     down: oneShot("ArrowDown") || oneShot("KeyS"),
     downHeld: keys.has("ArrowDown") || keys.has("KeyS"),
+    space: oneShot("Space"),
+    spaceHeld: keys.has("Space"),
     leftShot: oneShot("ArrowLeft") || oneShot("KeyA"),
     rightShot: oneShot("ArrowRight") || oneShot("KeyD"),
   };
@@ -91,6 +95,7 @@ function updateHud() {
 
 function switchForm(next) {
   if (!state.helmetOwned) return;
+  if (!state.unlockedForms.has(next)) return;
   if (state.form === "none" && next === "none") return;
   if (state.form !== "none" && next === "none") return;
   const wasWhite = state.form === "white";
@@ -108,7 +113,7 @@ function switchForm(next) {
 function beginChoice() {
   if (!state.helmetOwned) return;
   state.choosing = true;
-  state.selectedForm = state.form === "none" ? "white" : state.form;
+  state.selectedForm = state.form === "none" ? "green" : state.form;
   hintLabel.textContent = "时间暂停：上白 左黑 右红 下绿";
 }
 
@@ -119,10 +124,10 @@ function finishChoice() {
 }
 
 function handleChoice() {
-  if (keys.has("ArrowUp") || keys.has("KeyW")) state.selectedForm = "white";
-  if (keys.has("ArrowRight") || keys.has("KeyD")) state.selectedForm = "red";
-  if (keys.has("ArrowLeft") || keys.has("KeyA")) state.selectedForm = "black";
-  if (keys.has("ArrowDown") || keys.has("KeyS")) state.selectedForm = "green";
+  if ((keys.has("ArrowUp") || keys.has("KeyW")) && state.unlockedForms.has("white")) state.selectedForm = "white";
+  if ((keys.has("ArrowRight") || keys.has("KeyD")) && state.unlockedForms.has("red")) state.selectedForm = "red";
+  if ((keys.has("ArrowLeft") || keys.has("KeyA")) && state.unlockedForms.has("black")) state.selectedForm = "black";
+  if ((keys.has("ArrowDown") || keys.has("KeyS")) && state.unlockedForms.has("green")) state.selectedForm = "green";
 }
 
 function activateCheckpoint() {
@@ -193,6 +198,10 @@ function update(dt) {
   if (state.raisedFlags.has(state.room.id)) state.room.flagProgress = Math.min(1, (state.room.flagProgress ?? 1) + dt * 4.5);
 
   const { player } = state;
+  if (player.rollRefreshQueued) {
+    player.rollRefreshQueued = false;
+    playRollRefresh();
+  }
   player.dropTimer = Math.max(0, player.dropTimer - dt);
   player.coyote = Math.max(0, player.coyote - dt);
   player.stun = Math.max(0, player.stun - dt);
@@ -208,10 +217,13 @@ function update(dt) {
   else if (state.form === "green") updateGreen(state, input, dt);
   else if (state.form === "black") updateBlack(state, input, dt);
 
+  handleSwitches();
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
 
   handlePickups();
+  handleSwitches();
+  handleEnemies();
   activateCheckpoint();
   handleHazards();
   handleRoomEdges();
@@ -322,29 +334,53 @@ function handlePickups() {
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
     state.worldRooms[state.roomIndex].helmet.taken = true;
     state.helmetOwned = true;
+    state.unlockedForms.add("green");
+    state.form = "green";
+    state.selectedForm = "green";
     state.checkpoint.helmetOwned = true;
     hintLabel.textContent = "长按 Space 选骑士";
+    state.shake = 5;
+  }
+  for (const item of room.abilityPickups || []) {
+    if (!state.helmetOwned || item.taken || !rectsOverlap(player, item)) continue;
+    state.unlockedForms.add(item.form);
+    item.taken = true;
+    state.selectedForm = item.form;
+    switchForm(item.form);
     state.shake = 5;
   }
 }
 
 function handleHazards() {
   const { player, room } = state;
+  for (const h of room.hazards || []) {
+    const canIgnore = h.type === "electric" && state.form === "green" && player.greenAfterimage;
+    if (!canIgnore && rectsOverlap(expandedRollRect(player), h) && !surviveHazard(player)) return;
+  }
   if (state.form !== "white") {
     for (const p of room.plagueHazards) {
-      if (Math.hypot(player.x + 12 - p.x, player.y + 14 - p.y) < 17) respawn();
+      if (Math.hypot(player.x + 12 - p.x, player.y + 14 - p.y) < 17 && !surviveHazard(player)) return;
     }
     if (player.plagueGrace <= 0) {
       for (const p of player.plague) {
-        if (touchesPlague(player.x + 12, player.y + 14, p, 15)) respawn();
+        if (touchesPlague(player.x + 12, player.y + 14, p, 15) && !surviveHazard(player)) return;
       }
     }
   }
   if (state.form !== "green") {
     for (let i = 1; i < player.graves.length; i += 1) {
-      if (pointNearSegment(player.x + 12, player.y + 14, player.graves[i - 1], player.graves[i]) < 8) respawn();
+      if (pointNearSegment(player.x + 12, player.y + 14, player.graves[i - 1], player.graves[i]) < 8 && !surviveHazard(player)) return;
     }
   }
+}
+
+function surviveHazard(player) {
+  if (player.rollTimer > 0) {
+    refreshRoll(player);
+    return true;
+  }
+  respawn();
+  return false;
 }
 
 function touchesPlague(px, py, plague, radius) {
@@ -355,6 +391,81 @@ function touchesPlague(px, py, plague, radius) {
   const n = px * plague.nx + py * plague.ny;
   const clamped = Math.max(plague.a, Math.min(plague.b, t));
   return Math.hypot(t - clamped, n - plague.n) < radius;
+}
+
+function handleSwitches() {
+  const { room, player } = state;
+  const bodyCanPress = !(state.form === "green" && player.greenAfterimage);
+  for (const s of room.switches || []) {
+    const body = bodyCanPress && rectsOverlap(player, s);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
+    s.pressed = body || grave;
+  }
+  const open = (room.switches || []).some((s) => s.pressed);
+  for (const g of room.gates || []) g.open = open;
+}
+
+function handleEnemies() {
+  const { room, player } = state;
+  for (const enemy of room.enemies || []) {
+    if (!enemy.alive) continue;
+    if (canWhiteKill(enemy) || canGreenLineKill(enemy)) {
+      enemy.alive = false;
+      continue;
+    }
+    if (!rectsOverlap(player, enemy)) continue;
+    const blackStomp = state.form === "black" && player.vy > 120 && player.y + player.h <= enemy.y + 12;
+    if (state.form === "red" && player.redDash) {
+      enemy.alive = false;
+      player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
+    } else if (blackStomp) {
+      enemy.alive = false;
+      player.vy = Math.min(player.vy, -360);
+    } else if (player.rollTimer <= 0) {
+      respawn();
+      return;
+    }
+  }
+}
+
+function canWhiteKill(enemy) {
+  return state.player.plague.some((p) => touchesPlague(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, p, 18));
+}
+
+function canGreenLineKill(enemy) {
+  const { player } = state;
+  for (let i = 1; i < player.graves.length; i += 1) {
+    if (pointNearSegment(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, player.graves[i - 1], player.graves[i]) < 12) return true;
+  }
+  return false;
+}
+
+function expandedRollRect(player) {
+  if (player.rollTimer <= 0) return player;
+  const padX = player.w * 0.1;
+  const padY = player.h * 0.1;
+  return { x: player.x - padX, y: player.y - padY, w: player.w + padX * 2, h: player.h + padY * 2 };
+}
+
+function refreshRoll(player) {
+  player.rollCooldown = 0;
+  player.rollRefreshQueued = true;
+}
+
+function playRollRefresh() {
+  try {
+    audioCtx ||= new AudioContext();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 720;
+    gain.gain.value = 0.04;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.08);
+  } catch {
+    // Best effort; browsers may block audio before user input.
+  }
 }
 
 function handleRoomEdges() {
