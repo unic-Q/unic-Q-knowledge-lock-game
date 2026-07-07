@@ -1,6 +1,6 @@
 "use strict";
 
-import { FORMS, RED_QTE_READY, RED_QTE_TIME } from "./constants.js";
+import { COLS, FORMS, RED_QTE_READY, RED_QTE_TIME, ROWS } from "./constants.js";
 import { transformedRect, isGreenAfterimage } from "./physics.js";
 
 function drawRect(ctx, r, fill, stroke) {
@@ -290,6 +290,54 @@ export function draw(ctx, state) {
     ctx.fillText(["→", "↓", "←", "↑"][state.worldRot], 24, 34);
   }
   if (state.choosing) drawChoiceOverlay(ctx, state);
+  if (state.mapOpen) drawVisitedMap(ctx, state);
+  ctx.restore();
+}
+
+function drawVisitedMap(ctx, state) {
+  const visited = [...state.visitedRooms].sort((a, b) => a - b);
+  if (!visited.length) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(16,20,27,0.78)";
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const cardW = 112;
+  const cardH = 72;
+  const gap = 12;
+  const cols = 5;
+  const startX = 58;
+  const startY = 48;
+  ctx.font = "700 12px Microsoft YaHei, sans-serif";
+  ctx.textAlign = "left";
+  for (let i = 0; i < visited.length; i += 1) {
+    const id = visited[i];
+    const room = state.worldRooms[id - 1];
+    if (!room) continue;
+    const x = startX + (i % cols) * (cardW + gap);
+    const y = startY + Math.floor(i / cols) * (cardH + gap);
+    ctx.fillStyle = id === state.room.id ? "#263649" : "#202b38";
+    ctx.fillRect(x, y, cardW, cardH);
+    ctx.strokeStyle = id === state.room.id ? "#f4c95d" : "#3b4757";
+    ctx.strokeRect(x + 0.5, y + 0.5, cardW - 1, cardH - 1);
+    ctx.fillStyle = "#dfe8ed";
+    ctx.fillText(String(id).padStart(2, "0"), x + 6, y + 14);
+    const scaleX = (cardW - 12) / COLS;
+    const scaleY = (cardH - 24) / ROWS;
+    const ox = x + 6;
+    const oy = y + 20;
+    for (let gy = 0; gy < room.blocks.length; gy += 1) {
+      for (let gx = 0; gx < room.blocks[gy].length; gx += 1) {
+        const cell = room.blocks[gy][gx];
+        if (cell === ".") continue;
+        ctx.fillStyle = cell === "!" ? "#9c3038" :
+          cell === "~" ? "#8ee6ff" :
+            "GRWB".includes(cell) ? "#f4c95d" :
+              cell === "M" ? "#3f273f" :
+                cell === "D" ? "#6f7884" :
+                  "#607487";
+        ctx.fillRect(ox + gx * scaleX, oy + gy * scaleY, Math.max(1, scaleX), Math.max(1, scaleY));
+      }
+    }
+  }
   ctx.restore();
 }
 

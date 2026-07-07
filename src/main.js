@@ -28,11 +28,13 @@ const state = {
   room: null,
   player: null,
   form: "none",
-  selectedForm: "white",
+  selectedForm: "red",
   helmetHeld: 0,
   helmetOwned: false,
   unlockedForms: new Set(),
   choosing: false,
+  mapOpen: false,
+  visitedRooms: new Set(),
   greenAfterimageMemory: false,
   worldRot: 0,
   shake: 0,
@@ -62,12 +64,13 @@ function inputState() {
 function loadRoom(index, spawn) {
   state.roomIndex = Math.max(0, Math.min(index, state.worldRooms.length - 1));
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  state.visitedRooms.add(state.room.id);
   const start = spawn || state.room.spawn;
   state.player = makePlayer(start[0], start[1]);
   if (!spawn && state.roomIndex === 0) {
     state.checkpoint = { roomIndex: state.roomIndex, x: start[0], y: start[1], form: "none", helmetOwned: state.helmetOwned, worldRot: 0 };
   }
-  state.selectedForm = state.form === "none" ? "white" : state.form;
+  state.selectedForm = state.form === "none" ? "red" : state.form;
   state.worldRot = state.checkpoint.worldRot ?? 0;
   state.helmetHeld = 0;
   state.choosing = false;
@@ -113,7 +116,7 @@ function switchForm(next) {
 function beginChoice() {
   if (!state.helmetOwned) return;
   state.choosing = true;
-  state.selectedForm = state.form === "none" ? "green" : state.form;
+  state.selectedForm = state.form === "none" ? "red" : state.form;
   hintLabel.textContent = "时间暂停：上白 左黑 右红 下绿";
 }
 
@@ -179,6 +182,7 @@ function update(dt) {
   const input = inputState();
 
   if (oneShot("KeyR")) respawn();
+  if (oneShot("KeyM")) state.mapOpen = !state.mapOpen;
   if (oneShot("KeyN")) changeRoom("r") || loadRoom(state.roomIndex + 1, [70, ROOM_FLOOR * TILE - 28]);
   if (oneShot("KeyP")) changeRoom("l") || loadRoom(state.roomIndex - 1, [WIDTH - 70, ROOM_FLOOR * TILE - 28]);
 
@@ -334,9 +338,9 @@ function handlePickups() {
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
     state.worldRooms[state.roomIndex].helmet.taken = true;
     state.helmetOwned = true;
-    state.unlockedForms.add("green");
-    state.form = "green";
-    state.selectedForm = "green";
+    state.unlockedForms.add("red");
+    state.form = "red";
+    state.selectedForm = "red";
     state.checkpoint.helmetOwned = true;
     hintLabel.textContent = "长按 Space 选骑士";
     state.shake = 5;
