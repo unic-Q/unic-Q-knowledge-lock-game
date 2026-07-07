@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI 回放查看器</title>
+  <title>AI Replay Viewer</title>
   <style>
     :root {
       color-scheme: dark;
@@ -32,7 +32,7 @@
     }
     .layout {
       display: grid;
-      grid-template-columns: minmax(720px, 1fr) 320px;
+      grid-template-columns: minmax(720px, 1fr) 340px;
       gap: 16px;
       align-items: start;
     }
@@ -48,21 +48,31 @@
       border: 1px solid #334256;
       padding: 12px;
     }
-    .controls {
+    .picker {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: 1fr 1fr;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
+    select,
     button {
       border: 1px solid #46566d;
       background: #223047;
       color: #e6edf3;
       height: 34px;
+    }
+    button {
       cursor: pointer;
     }
-    button:hover {
+    button:hover,
+    select:hover {
       background: #2b3b55;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
     }
     input[type="range"] {
       width: 100%;
@@ -70,7 +80,7 @@
     }
     dl {
       display: grid;
-      grid-template-columns: 90px 1fr;
+      grid-template-columns: 98px 1fr;
       gap: 8px 10px;
       margin: 0;
       font-size: 13px;
@@ -82,9 +92,17 @@
       margin: 0;
       overflow-wrap: anywhere;
     }
+    .objectives {
+      margin: 12px 0;
+      padding: 9px;
+      border: 1px solid #334256;
+      background: #121c2a;
+      font-size: 12px;
+      line-height: 1.5;
+    }
     .actions {
       margin-top: 12px;
-      height: 260px;
+      height: 240px;
       overflow: auto;
       border-top: 1px solid #334256;
       padding-top: 10px;
@@ -100,14 +118,21 @@
 <body>
   <div class="top">
     <div>
-      <h1>AI 回放查看器</h1>
+      <h1>AI Replay Viewer</h1>
       <div class="meta" id="meta">Loading</div>
     </div>
-    <div class="meta">重新生成：<code>node tools\ai-playtest.mjs --trace 3 helmet</code></div>
+    <div class="meta">Generate all: <code>node tools\ai-playtest.mjs --trace-all 3 20</code></div>
   </div>
   <div class="layout">
     <canvas id="view" width="960" height="384"></canvas>
     <aside class="panel">
+      <div class="picker">
+        <select id="roomSelect"></select>
+        <select id="modeSelect">
+          <option value="helmet">helmet</option>
+          <option value="no-helmet">no-helmet</option>
+        </select>
+      </div>
       <div class="controls">
         <button id="play">Play</button>
         <button id="prev">Prev</button>
@@ -118,15 +143,18 @@
       <dl>
         <dt>Room</dt><dd id="room">-</dd>
         <dt>Mode</dt><dd id="mode">-</dd>
+        <dt>Status</dt><dd id="status">-</dd>
         <dt>Step</dt><dd id="step">-</dd>
         <dt>Action</dt><dd id="action">-</dd>
         <dt>Position</dt><dd id="pos">-</dd>
         <dt>Reward</dt><dd id="reward">-</dd>
         <dt>Visits</dt><dd id="visits">-</dd>
+        <dt>Objectives</dt><dd id="objectiveCount">-</dd>
         <dt>Event</dt><dd id="event">-</dd>
         <dt>Switch/Kill</dt><dd id="switches">-</dd>
         <dt>Forms</dt><dd id="forms">-</dd>
       </dl>
+      <div class="objectives" id="objectives">-</div>
       <div class="actions" id="actions"></div>
     </aside>
   </div>
@@ -135,8 +163,10 @@
     const tile = 32;
     const canvas = document.querySelector("#view");
     const ctx = canvas.getContext("2d");
-    const ui = Object.fromEntries(["meta", "room", "mode", "step", "action", "pos", "reward", "visits", "event", "switches", "forms", "actions"]
-      .map((id) => [id, document.querySelector(`#${id}`)]));
+    const ids = ["meta", "room", "mode", "status", "step", "action", "pos", "reward", "visits", "objectiveCount", "event", "switches", "forms", "objectives", "actions"];
+    const ui = Object.fromEntries(ids.map((id) => [id, document.querySelector(`#${id}`)]));
+    const roomSelect = document.querySelector("#roomSelect");
+    const modeSelect = document.querySelector("#modeSelect");
     const scrub = document.querySelector("#scrub");
     const buttons = {
       play: document.querySelector("#play"),
@@ -144,7 +174,8 @@
       next: document.querySelector("#next"),
       restart: document.querySelector("#restart"),
     };
-    let data = null;
+    let bundle = null;
+    let result = null;
     let index = 0;
     let timer = null;
 
@@ -164,8 +195,40 @@
       "B": "#252632",
     };
 
+    async function loadBundle() {
+      try {
+        const all = await fetch("tools/ai-traces.json?fresh=" + Date.now()).then((res) => {
+          if (!res.ok) throw new Error("missing all traces");
+          return res.json();
+        });
+        return all;
+      } catch {
+        const single = await fetch("tools/ai-trace.json?fresh=" + Date.now()).then((res) => res.json());
+        return { ...single, results: [single.result] };
+      }
+    }
+
+    function populatePickers() {
+      const rooms = [...new Set(bundle.results.map((item) => item.roomId))].sort((a, b) => a - b);
+      roomSelect.innerHTML = rooms.map((roomId) => `<option value="${roomId}">Room ${String(roomId).padStart(2, "0")}</option>`).join("");
+      const first = bundle.results[0];
+      roomSelect.value = String(first.roomId);
+      modeSelect.value = first.mode;
+    }
+
+    function selectResult() {
+      const roomId = Number(roomSelect.value);
+      const mode = modeSelect.value;
+      result = bundle.results.find((item) => item.roomId === roomId && item.mode === mode)
+        || bundle.results.find((item) => item.roomId === roomId)
+        || bundle.results[0];
+      index = 0;
+      scrub.max = Math.max(0, (result.trace?.length || 1) - 1);
+      scrub.value = 0;
+      draw();
+    }
+
     function draw() {
-      const result = data.result;
       const trace = result.trace || [];
       const step = trace[Math.min(index, trace.length - 1)] || null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -210,28 +273,32 @@
     }
 
     function updatePanel(step) {
-      const result = data.result;
-      const clearState = result.replayCleared ? "CLEARED" : "best failed attempt";
-      ui.meta.textContent = `Generated ${data.generatedAt}, ${clearState}, ${result.trace.length} steps, best progress ${result.progress.toFixed(2)}`;
+      const trace = result.trace || [];
+      const clearState = result.replayCleared ? `CLEARED@${result.clearAt}` : "best failed attempt";
+      ui.meta.textContent = `Generated ${bundle.generatedAt}, ${bundle.results.length} replays, objective +${bundle.objectiveReward ?? 5000}, clear +${bundle.clearReward ?? 10000}`;
       ui.room.textContent = result.roomId;
       ui.mode.textContent = result.mode;
-      ui.step.textContent = step ? `${step.step} / ${result.trace.length - 1}` : "-";
+      ui.status.textContent = `${clearState}, progress ${result.progress.toFixed(2)}`;
+      ui.step.textContent = step ? `${step.step} / ${trace.length - 1}` : "-";
       ui.action.textContent = step?.action || "-";
       ui.pos.textContent = step ? `${step.x}, ${step.y}` : "-";
       ui.reward.textContent = step ? `${step.rewardDelta} / ${step.rewardTotal}` : "-";
       ui.visits.textContent = step?.visits ?? "-";
+      ui.objectiveCount.textContent = step ? `${step.objectivesDone ?? 0} / ${step.objectivesTotal ?? result.objectives?.length ?? 0}` : "-";
       ui.event.textContent = step?.event || "-";
       ui.switches.textContent = step ? `${step.switches} / ${step.kills}` : "-";
-      ui.forms.textContent = step ? ["R", "G", "W", "B"].filter((label) => step[`has${{R:"Red",G:"Green",W:"White",B:"Black"}[label]}`]).join(" ") || "-" : "-";
-      ui.actions.innerHTML = result.trace.map((item, i) =>
-        `<div class="${i === index ? "active" : ""}">${String(i).padStart(3, "0")} ${item.action.padEnd(13)} (${item.x},${item.y}) ${item.event || ""}</div>`
-      ).join("");
+      ui.forms.textContent = step ? ["R", "G", "W", "B"].filter((label) => step[`has${{ R: "Red", G: "Green", W: "White", B: "Black" }[label]}`]).join(" ") || "-" : "-";
+      ui.objectives.innerHTML = (result.objectives || []).map((objective) => `${objective.label}: (${objective.x},${objective.y})`).join("<br>") || "No explicit objectives";
+      ui.actions.innerHTML = trace.map((item, i) => {
+        const event = item.objectiveEvents?.length ? item.objectiveEvents.join(",") : item.event || "";
+        return `<div class="${i === index ? "active" : ""}">${String(i).padStart(3, "0")} ${item.action.padEnd(13)} (${item.x},${item.y}) ${event}</div>`;
+      }).join("");
       const active = ui.actions.querySelector(".active");
       if (active) active.scrollIntoView({ block: "nearest" });
     }
 
     function setIndex(value) {
-      index = Math.max(0, Math.min((data.result.trace?.length || 1) - 1, value));
+      index = Math.max(0, Math.min((result.trace?.length || 1) - 1, value));
       scrub.value = index;
       draw();
     }
@@ -245,7 +312,7 @@
       }
       buttons.play.textContent = "Pause";
       timer = setInterval(() => {
-        if (index >= data.result.trace.length - 1) setIndex(0);
+        if (index >= result.trace.length - 1) setIndex(0);
         else setIndex(index + 1);
       }, 90);
     });
@@ -253,10 +320,12 @@
     buttons.next.addEventListener("click", () => setIndex(index + 1));
     buttons.restart.addEventListener("click", () => setIndex(0));
     scrub.addEventListener("input", () => setIndex(Number(scrub.value)));
+    roomSelect.addEventListener("change", selectResult);
+    modeSelect.addEventListener("change", selectResult);
 
-    data = await fetch("tools/ai-trace.json?fresh=" + Date.now()).then((res) => res.json());
-    scrub.max = Math.max(0, data.result.trace.length - 1);
-    draw();
+    bundle = await loadBundle();
+    populatePickers();
+    selectResult();
   </script>
 </body>
 </html>

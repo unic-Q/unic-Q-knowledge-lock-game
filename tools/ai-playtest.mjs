@@ -3,6 +3,10 @@ import { COLS, ROOM_FLOOR, ROWS } from "../src/constants.js";
 import { writeFileSync } from "node:fs";
 
 const MAX_EVALUATIONS = 500;
+const CLEAR_REWARD = 10000;
+const OBJECTIVE_REWARD = CLEAR_REWARD / 2;
+const WALK_REWARD = 0.08;
+const JUMP_REWARD = 0.22;
 const POPULATION = 25;
 const GENERATIONS = Math.ceil(MAX_EVALUATIONS / POPULATION);
 const STEPS = 100;
@@ -122,6 +126,17 @@ function makeEnv(roomId) {
     gates,
     start: entries[entries.length - 1] || { x: 2, y: ROOM_FLOOR - 1 },
   };
+}
+
+function makeObjectives(env, mode) {
+  const objectives = [];
+  for (const cell of env.switches.slice(0, 3)) {
+    objectives.push({ id: `switch:${cell.x},${cell.y}`, type: "switch", x: cell.x, y: cell.y, label: "Press switch" });
+  }
+  if (mode === "helmet" && env.ability && objectives.length < 3) {
+    objectives.push({ id: `ability:${env.ability.x},${env.ability.y}`, type: "ability", x: env.ability.x, y: env.ability.y, label: `Collect ${env.ability.c}` });
+  }
+  return objectives;
 }
 
 function nearestDistance(x, y, cells) {
@@ -275,7 +290,26 @@ function updateInteractions(state, env, mode) {
   }
 }
 
+function completeObjectives(state, env, mode) {
+  const completed = [];
+  for (const objective of state.objectives) {
+    if (state.objectivesDone.has(objective.id)) continue;
+    let done = false;
+    if (objective.type === "switch") {
+      done = state.pressedSwitches.has(`${objective.x},${objective.y}`);
+    } else if (objective.type === "ability") {
+      done = mode === "helmet" && state.x === objective.x && state.y === objective.y;
+    }
+    if (done) {
+      state.objectivesDone.add(objective.id);
+      completed.push(objective);
+    }
+  }
+  return completed;
+}
+
 function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
+  const objectives = makeObjectives(env, mode);
   const q = inheritedQ ? new Map(inheritedQ) : new Map();
   const state = {
     x: env.start.x,
@@ -285,6 +319,9 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     kills: 0,
     pressedSwitches: new Set(),
     killedEnemies: new Set(),
+    objectives,
+    objectivesDone: new Set(),
+    lastObjectives: [],
     survivedHazards: new Set(),
     visitedCells: new Map([[`${env.start.x},${env.start.y}`, 1]]),
     currentVisits: 1,
@@ -316,6 +353,7 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     used.add(ACTIONS[action]);
     applyAction(state, env, action, mode);
     updateInteractions(state, env, mode);
+    state.lastObjectives = completeObjectives(state, env, mode);
     state.rollCd = Math.max(0, state.rollCd - 1);
     state.redCd = Math.max(0, state.redCd - 1);
     state.whiteCd = Math.max(0, state.whiteCd - 1);
@@ -326,8 +364,8 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     const movedY = state.y !== beforeY;
     const jumped = actionName.includes("jump");
     let r = -0.03;
-    if (movedX) r += Math.abs(state.x - beforeX) * 0.08;
-    if (jumped) r += 0.08;
+    if (movedX) r += Math.abs(state.x - beforeX) * WALK_REWARD;
+    if (jumped) r += JUMP_REWARD;
     if (!movedX && !movedY) r -= 0.25;
     if (jumped && !movedX) r -= 0.25;
     if (state.x > state.bestX) {
@@ -335,6 +373,7 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     }
     if (state.switches > beforeSwitches) r += 30;
     if (state.kills > beforeKills) r += 12;
+    if (state.lastObjectives.length) r += state.lastObjectives.length * OBJECTIVE_REWARD;
     let event = "";
     const visitKey = `${state.x},${state.y}`;
     const previousVisits = state.visitedCells.get(visitKey) || 0;
@@ -343,6 +382,9 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     if (previousVisits > 0) {
       r -= previousVisits * previousVisits * 0.18;
       event = "repeat_visit";
+    }
+    if (state.lastObjectives.length) {
+      event = state.lastObjectives.map((objective) => `objective:${objective.type}`).join("+");
     }
     const touchingDeadly = deadly(env.grid, state.x, state.y);
     const survivedDeadly = touchingDeadly && ((ACTIONS[action] === "roll" && mode === "no-helmet") || state.spirit);
@@ -370,7 +412,7 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
       break;
     }
     if (env.exits.some((exit) => state.x >= exit.x && state.y === exit.y)) {
-      r += 10000;
+      r += CLEAR_REWARD;
       reward += r;
       cleared = true;
       event = "cleared";
@@ -418,6 +460,9 @@ function traceStep(step, state, action, rewardDelta, rewardTotal, event) {
     rewardTotal: Number(rewardTotal.toFixed(2)),
     event,
     visits: state.currentVisits,
+    objectivesDone: state.objectivesDone.size,
+    objectivesTotal: state.objectives.length,
+    objectiveEvents: state.lastObjectives.map((objective) => objective.label),
     spirit: state.spirit,
     switches: state.switches,
     kills: state.kills,
@@ -478,6 +523,7 @@ function trainRoom(roomId, mode, collectTrace = false) {
     bestX: best.bestX,
     progress: best.bestX / (COLS - 1),
     used: [...best.used].join(","),
+    objectives: env ? makeObjectives(env, mode) : [],
     startHeight,
     exitHeight,
     sameHeight: Math.abs(startHeight - exitHeight) <= 1,
@@ -507,6 +553,49 @@ if (traceIndex >= 0) {
   writeFileSync("tools/ai-trace.json", JSON.stringify(payload, null, 2));
   console.log(`Wrote tools/ai-trace.json for room ${roomId} ${mode}.`);
   console.log(`best progress=${result.progress.toFixed(2)} clearAt=${result.clearAt ?? "not-cleared"} replayCleared=${result.replayCleared}`);
+  process.exit(0);
+}
+
+const traceAllIndex = process.argv.indexOf("--trace-all");
+if (traceAllIndex >= 0) {
+  const fromRoom = Number(process.argv[traceAllIndex + 1] || 3);
+  const toRoom = Number(process.argv[traceAllIndex + 2] || 20);
+  const results = [];
+  for (let roomId = fromRoom; roomId <= toRoom; roomId += 1) {
+    for (const mode of ["helmet", "no-helmet"]) {
+      const result = trainRoom(roomId, mode, true);
+      results.push(result);
+      const status = result.clearAt ? `CLEARED@${result.clearAt}` : "not-cleared";
+      console.log(`trace room ${String(roomId).padStart(2, "0")} ${mode.padEnd(9)} ${status} objectives=${result.objectives.length}`);
+    }
+  }
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    actions: ACTIONS,
+    cols: COLS,
+    rows: ROWS,
+    maxEvaluations: MAX_EVALUATIONS,
+    objectiveReward: OBJECTIVE_REWARD,
+    clearReward: CLEAR_REWARD,
+    walkReward: WALK_REWARD,
+    jumpReward: JUMP_REWARD,
+    results,
+  };
+  writeFileSync("tools/ai-traces.json", JSON.stringify(payload, null, 2));
+  const first = results[0];
+  writeFileSync("tools/ai-trace.json", JSON.stringify({
+    generatedAt: payload.generatedAt,
+    actions: ACTIONS,
+    cols: COLS,
+    rows: ROWS,
+    maxEvaluations: MAX_EVALUATIONS,
+    objectiveReward: OBJECTIVE_REWARD,
+    clearReward: CLEAR_REWARD,
+    walkReward: WALK_REWARD,
+    jumpReward: JUMP_REWARD,
+    result: first,
+  }, null, 2));
+  console.log(`Wrote tools/ai-traces.json with ${results.length} replays.`);
   process.exit(0);
 }
 
