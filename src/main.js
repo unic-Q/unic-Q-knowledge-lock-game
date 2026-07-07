@@ -27,14 +27,25 @@ const state = {
   room: null,
   player: null,
   form: "none",
-  selectedForm: "white",
+  selectedForm: "red",
   helmetHeld: 0,
   helmetOwned: false,
+  unlockedForms: new Set(),
   choosing: false,
+  mapOpen: false,
   worldRot: 0,
   shake: 0,
   raisedFlags: new Set(),
-  checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, worldRot: 0 },
+  exploredRooms: new Set(),
+  checkpoint: {
+    roomIndex: 0,
+    x: 70,
+    y: ROOM_FLOOR * TILE - 28,
+    form: "none",
+    helmetOwned: false,
+    unlockedForms: [],
+    worldRot: 0,
+  },
 };
 
 function oneShot(code) {
@@ -51,45 +62,68 @@ function inputState() {
     downHeld: keys.has("ArrowDown") || keys.has("KeyS"),
     leftShot: oneShot("ArrowLeft") || oneShot("KeyA"),
     rightShot: oneShot("ArrowRight") || oneShot("KeyD"),
+    spaceShot: oneShot("Space"),
   };
 }
 
 function loadRoom(index, spawn) {
   state.roomIndex = Math.max(0, Math.min(index, state.worldRooms.length - 1));
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  state.exploredRooms.add(state.room.id);
   const start = spawn || state.room.spawn;
   state.player = makePlayer(start[0], start[1]);
   if (!spawn && state.roomIndex === 0) {
-    state.checkpoint = { roomIndex: state.roomIndex, x: start[0], y: start[1], form: "none", helmetOwned: state.helmetOwned, worldRot: 0 };
+    state.checkpoint = {
+      roomIndex: state.roomIndex,
+      x: start[0],
+      y: start[1],
+      form: "none",
+      helmetOwned: state.helmetOwned,
+      unlockedForms: [...state.unlockedForms],
+      worldRot: 0,
+    };
   }
-  state.selectedForm = state.form === "none" ? "white" : state.form;
+  state.selectedForm = state.form === "none" ? firstUnlockedForm() : state.form;
   state.worldRot = state.checkpoint.worldRot ?? 0;
   state.helmetHeld = 0;
   state.choosing = false;
+  state.mapOpen = false;
   updateHud();
 }
 
 function respawn() {
   state.roomIndex = state.checkpoint.roomIndex;
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  state.exploredRooms.add(state.room.id);
   state.helmetOwned = state.checkpoint.helmetOwned;
+  state.unlockedForms = new Set(state.checkpoint.unlockedForms || (state.helmetOwned ? ["red"] : []));
   state.form = state.checkpoint.form;
   state.player = makePlayer(state.checkpoint.x, state.checkpoint.y);
   state.worldRot = 0;
   state.helmetHeld = 0;
   state.choosing = false;
+  state.mapOpen = false;
   updateHud();
+}
+
+function firstUnlockedForm() {
+  return state.unlockedForms.values().next().value || "red";
+}
+
+function defaultHint() {
+  if (!state.helmetOwned) return "Space 冲刺；靠近头盔按 Space 拾取，也可以不拿";
+  return state.unlockedForms.size > 1 ? "长按 Space 选骑士" : `${FORMS[state.form].name} 已获得`;
 }
 
 function updateHud() {
   roomTitle.textContent = state.room.name;
   formLabel.textContent = FORMS[state.form].name;
   formLabel.style.color = FORMS[state.form].color;
-  hintLabel.textContent = state.helmetOwned ? "长按 Space 选骑士" : "第2关可拾取头盔，也可以不拿";
+  hintLabel.textContent = defaultHint();
 }
 
 function switchForm(next) {
-  if (!state.helmetOwned) return;
+  if (!state.unlockedForms.has(next)) return;
   if (state.form === "none" && next === "none") return;
   if (state.form !== "none" && next === "none") return;
   const wasWhite = state.form === "white";
@@ -102,23 +136,23 @@ function switchForm(next) {
 }
 
 function beginChoice() {
-  if (!state.helmetOwned) return;
+  if (state.unlockedForms.size < 2) return;
   state.choosing = true;
-  state.selectedForm = state.form === "none" ? "white" : state.form;
+  state.selectedForm = state.unlockedForms.has(state.form) ? state.form : firstUnlockedForm();
   hintLabel.textContent = "时间暂停：上白 左黑 右红 下绿";
 }
 
 function finishChoice() {
   state.choosing = false;
   switchForm(state.selectedForm);
-  hintLabel.textContent = state.helmetOwned ? "长按 Space 选骑士" : "头盔是可选物品";
+  hintLabel.textContent = defaultHint();
 }
 
 function handleChoice() {
-  if (keys.has("ArrowUp") || keys.has("KeyW")) state.selectedForm = "white";
-  if (keys.has("ArrowRight") || keys.has("KeyD")) state.selectedForm = "red";
-  if (keys.has("ArrowLeft") || keys.has("KeyA")) state.selectedForm = "black";
-  if (keys.has("ArrowDown") || keys.has("KeyS")) state.selectedForm = "green";
+  if ((keys.has("ArrowUp") || keys.has("KeyW")) && state.unlockedForms.has("white")) state.selectedForm = "white";
+  if ((keys.has("ArrowRight") || keys.has("KeyD")) && state.unlockedForms.has("red")) state.selectedForm = "red";
+  if ((keys.has("ArrowLeft") || keys.has("KeyA")) && state.unlockedForms.has("black")) state.selectedForm = "black";
+  if ((keys.has("ArrowDown") || keys.has("KeyS")) && state.unlockedForms.has("green")) state.selectedForm = "green";
 }
 
 function activateCheckpoint() {
@@ -134,6 +168,7 @@ function activateCheckpoint() {
     y: flagRect.y + flagRect.h - player.h,
     form: state.form,
     helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
     worldRot: state.worldRot,
   };
 }
@@ -169,6 +204,17 @@ function inBottomExit() {
 function update(dt) {
   const input = inputState();
 
+  if (oneShot("KeyM")) {
+    state.mapOpen = !state.mapOpen;
+    state.helmetHeld = 0;
+    state.choosing = false;
+  }
+  if (oneShot("Escape") && state.mapOpen) state.mapOpen = false;
+  if (state.mapOpen) {
+    prevKeys = new Set(keys);
+    return;
+  }
+
   if (oneShot("KeyR")) respawn();
   if (oneShot("KeyN")) changeRoom("r") || loadRoom(state.roomIndex + 1, [70, ROOM_FLOOR * TILE - 28]);
   if (oneShot("KeyP")) changeRoom("l") || loadRoom(state.roomIndex - 1, [WIDTH - 70, ROOM_FLOOR * TILE - 28]);
@@ -186,6 +232,8 @@ function update(dt) {
     return;
   }
 
+  if (handlePickups(input)) input.spaceShot = false;
+
   if (state.raisedFlags.has(state.room.id)) state.room.flagProgress = Math.min(1, (state.room.flagProgress ?? 1) + dt * 4.5);
 
   const { player } = state;
@@ -193,6 +241,7 @@ function update(dt) {
   player.coyote = Math.max(0, player.coyote - dt);
   player.stun = Math.max(0, player.stun - dt);
   player.plagueGrace = Math.max(0, player.plagueGrace - dt);
+  player.noneDashCooldown = Math.max(0, player.noneDashCooldown - dt);
   player.onGround = false;
 
   if (player.stun > 0) {
@@ -207,10 +256,10 @@ function update(dt) {
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
 
-  handlePickups();
   activateCheckpoint();
   handleHazards();
   handleRoomEdges();
+  updateContextHint();
 
   const fellOut = state.form === "black"
     ? player.y > ROWS * TILE + 360
@@ -268,6 +317,9 @@ function debugSnapshot() {
     plagueCount: p.plague.length,
     lastPlague: lastPlague ? {
       key: lastPlague.key,
+      cell: !!lastPlague.cell,
+      cellX: lastPlague.cellX,
+      cellY: lastPlague.cellY,
       nx: lastPlague.nx,
       ny: lastPlague.ny,
       tx: lastPlague.tx,
@@ -313,15 +365,38 @@ function sendDebugSnapshot(dt) {
   }).catch(() => {});
 }
 
-function handlePickups() {
+function pickupTarget() {
   const { room, player } = state;
-  if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
-    state.worldRooms[state.roomIndex].helmet.taken = true;
-    state.helmetOwned = true;
-    state.checkpoint.helmetOwned = true;
-    hintLabel.textContent = "长按 Space 选骑士";
-    state.shake = 5;
+  const source = state.worldRooms[state.roomIndex].helmet;
+  if (!room.helmet || !source || source.taken) return null;
+  return rectsOverlap(player, room.helmet) ? source : null;
+}
+
+function handlePickups(input) {
+  const item = pickupTarget();
+  if (!item) return false;
+  if (!input.spaceShot) return false;
+  const form = item.form || "red";
+  item.taken = true;
+  state.helmetOwned = true;
+  state.unlockedForms.add(form);
+  state.checkpoint.helmetOwned = true;
+  state.checkpoint.unlockedForms = [...state.unlockedForms];
+  switchForm(form);
+  state.checkpoint.form = state.form;
+  hintLabel.textContent = `${FORMS[form].name} 已获得`;
+  state.shake = 5;
+  return true;
+}
+
+function updateContextHint() {
+  if (state.choosing) return;
+  const item = pickupTarget();
+  if (item) {
+    hintLabel.textContent = `按 Space 拾取${FORMS[item.form || "red"].name}`;
+    return;
   }
+  hintLabel.textContent = defaultHint();
 }
 
 function handleHazards() {
@@ -332,7 +407,7 @@ function handleHazards() {
     }
     if (player.plagueGrace <= 0) {
       for (const p of player.plague) {
-        if (touchesPlague(player.x + 12, player.y + 14, p, 15)) respawn();
+        if (p.cell ? rectsOverlap(player, p) : touchesPlague(player.x + 12, player.y + 14, p, 15)) respawn();
       }
     }
   }
@@ -376,7 +451,7 @@ function frame(time) {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyM"].includes(event.code)) event.preventDefault();
   keys.add(event.code);
 });
 window.addEventListener("keyup", (event) => keys.delete(event.code));

@@ -1,20 +1,24 @@
 "use strict";
 
 export const TILE = 32;
-export const WIDTH = 960;
-export const HEIGHT = 540;
+export const COLS = 20;
+export const ROWS = 20;
+export const WIDTH = TILE * COLS;
+export const HEIGHT = TILE * ROWS;
 export const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
-export const COLS = 30;
-export const ROWS = 12;
-export const ROOM_FLOOR = 10;
-export const EXIT_TOP_X = 5;
-export const EXIT_BOTTOM_X = 5;
+export const ROOM_FLOOR = 18;
+export const EXIT_TOP_X = 8;
+export const EXIT_BOTTOM_X = 8;
 export const FLAG_W = 14;
 export const FLAG_H = 28;
 
 export const GRAVITY = 1900;
 export const MOVE = 250;
 export const JUMP = 650;
+
+export const NONE_DASH_SPEED = 620;
+export const NONE_DASH_TIME = 0.16;
+export const NONE_DASH_COOLDOWN = 0.32;
 
 export const RED_DASH_DISTANCE = TILE * 4;
 export const RED_DASH_TIME = 0.22;

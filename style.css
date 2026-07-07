@@ -28,7 +28,7 @@ body {
 }
 
 .shell {
-  width: min(100%, 1040px);
+  width: min(100%, 720px);
 }
 
 .hud,
