@@ -178,7 +178,7 @@ function applyRouteLock(grid, id) {
   } else if (id === 14) {
     put(grid, 23, 7, "K");
   } else if (id === 18) {
-    put(grid, 21, 4, "K");
+    put(grid, 5, 7, "K");
   } else if (id % 2 === 0) {
     line(grid, 3, 5, 7);
     put(grid, 5, 6, "K");
@@ -392,11 +392,9 @@ function applyRoomPattern(grid, id) {
     line(grid, 11, 14, 6);
     line(grid, 16, 18, 8, "!");
     put(grid, 15, 5, "M");
-    line(grid, 19, 23, 5, "E");
-    line(grid, 19, 23, 7, "E");
-    put(grid, 21, 5, ".");
-    line(grid, 24, 26, 8);
+    line(grid, 19, 21, 7);
     line(grid, 20, 22, 5, "~");
+    line(grid, 24, 26, 8);
     return;
   }
   if (id === 19) {
@@ -482,7 +480,7 @@ export function parseRoom(data) {
       if (cell === "!") hazards.push({ ...b, type: "spike" });
       if (cell === "~") hazards.push({ ...b, type: "electric" });
       if (cell === "M") enemies.push({ x: b.x + 4, y: b.y + 7, w: TILE - 8, h: TILE - 7, alive: true });
-      if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false });
+      if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false, latched: false });
       if (cell === "D") gates.push({ ...b, open: false });
       if ("GRWB".includes(cell)) abilityPickups.push({ x: b.x + 4, y: b.y + 4, w: 24, h: 24, form: { G: "green", R: "red", W: "white", B: "black" }[cell], taken: false });
       if (cell === "A") anchors.push({ x: b.x + TILE / 2, y: b.y + TILE / 2 });

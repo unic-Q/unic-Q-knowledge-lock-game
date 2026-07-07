@@ -223,11 +223,15 @@ function applyAction(state, env, action, mode) {
     state.redCd = 10;
   }
   if (name === "green_spirit" && state.hasGreen) {
-    state.spirit = !state.spirit;
-    tryMove(state, env, 1, state.spirit ? -1 : 0);
+    if (state.spirit && state.grave) {
+      state.x = state.grave.x;
+      state.y = state.grave.y;
+      state.spirit = false;
+    }
   }
   if (name === "green_grave" && state.hasGreen) {
     state.grave = { x: state.x, y: state.y };
+    state.spirit = true;
   }
   if (name === "white_attach" && state.hasWhite && state.whiteCd <= 0) {
     tryMove(state, env, 2, -1);
@@ -366,7 +370,7 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
       break;
     }
     if (env.exits.some((exit) => state.x >= exit.x && state.y === exit.y)) {
-      r += 500;
+      r += 10000;
       reward += r;
       cleared = true;
       event = "cleared";

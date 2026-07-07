@@ -442,7 +442,8 @@ function handleSwitches() {
   for (const s of room.switches || []) {
     const body = bodyCanPress && rectsOverlap(player, s);
     const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
-    s.pressed = body || grave;
+    if (body || grave) s.latched = true;
+    s.pressed = body || grave || s.latched;
   }
   const open = (room.switches || []).some((s) => s.pressed);
   for (const g of room.gates || []) g.open = open;
