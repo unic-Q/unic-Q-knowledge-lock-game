@@ -58,6 +58,8 @@ export const roomLinks = {
 };
 
 const sideExitRows = {
+  1: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
+  2: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   3: [3, 4],
   4: [8, 9],
   5: [3, 4],

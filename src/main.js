@@ -164,10 +164,13 @@ function changeRoom(dir) {
 }
 
 function inSideExit(side) {
-  const cy = state.player.y + state.player.h / 2;
   const col = side === "l" ? 0 : COLS - 1;
-  const row = Math.max(0, Math.min(ROWS - 1, Math.floor(cy / TILE)));
-  return state.room.blocks[row]?.[col] === ".";
+  const top = Math.max(0, Math.floor(state.player.y / TILE));
+  const bottom = Math.min(ROWS - 1, Math.floor((state.player.y + state.player.h - 1) / TILE));
+  for (let row = top; row <= bottom; row += 1) {
+    if (state.room.blocks[row]?.[col] === ".") return true;
+  }
+  return false;
 }
 
 function inTopExit() {
