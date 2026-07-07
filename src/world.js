@@ -60,23 +60,23 @@ export const roomLinks = {
 const sideExitRows = {
   1: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   2: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
-  3: [3, 4],
+  3: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   4: [8, 9],
-  5: [3, 4],
+  5: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   6: [8, 9],
-  7: [3, 4],
+  7: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   8: [8, 9],
-  9: [3, 4],
+  9: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   10: [8, 9],
-  11: [3, 4],
+  11: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   12: [8, 9],
-  13: [3, 4],
+  13: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   14: [8, 9],
-  15: [3, 4],
+  15: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   16: [8, 9],
-  17: [3, 4],
+  17: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   18: [8, 9],
-  19: [3, 4],
+  19: [ROOM_FLOOR - 2, ROOM_FLOOR - 1],
   20: [8, 9],
 };
 
@@ -172,14 +172,6 @@ function clearCells(grid, chars) {
 function applyRouteLock(grid, id) {
   if (id < 3 || id > 20) return;
   clearCells(grid, "KD");
-  if (id === 14 || id === 20) {
-    line(grid, 1, 2, 3);
-    put(grid, 1, 2, "K");
-  } else {
-    line(grid, 12, 15, 3);
-    put(grid, 14, 2, "K");
-  }
-  pillar(grid, 26, 1, 9, "D");
 }
 
 function applyRoomPattern(grid, id) {
@@ -188,7 +180,8 @@ function applyRoomPattern(grid, id) {
     line(grid, 12, 15, 7);
     line(grid, 19, 23, 6);
     line(grid, 25, 27, 8);
-    for (let x = 16; x <= 18; x += 1) put(grid, x, ROOM_FLOOR - 1, "P");
+    put(grid, 16, 8, "P");
+    put(grid, 17, 8, "P");
     return;
   }
   if (id === 2) return;
