@@ -180,8 +180,6 @@ function applyRoomPattern(grid, id) {
     line(grid, 12, 15, 7);
     line(grid, 19, 23, 6);
     line(grid, 25, 27, 8);
-    put(grid, 16, 8, "P");
-    put(grid, 17, 8, "P");
     return;
   }
   if (id === 2) return;

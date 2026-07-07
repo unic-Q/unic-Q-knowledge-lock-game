@@ -40,7 +40,20 @@ const state = {
   shake: 0,
   raisedFlags: new Set(),
   checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, worldRot: 0 },
+  lastRespawn: "none",
+  eventLog: [],
 };
+
+function logEvent(type, data = {}) {
+  state.eventLog.push({
+    type,
+    room: state.room?.id,
+    x: Number(state.player?.x?.toFixed?.(2) ?? 0),
+    y: Number(state.player?.y?.toFixed?.(2) ?? 0),
+    ...data,
+  });
+  state.eventLog = state.eventLog.slice(-8);
+}
 
 function oneShot(code) {
   return keys.has(code) && !prevKeys.has(code);
@@ -77,7 +90,9 @@ function loadRoom(index, spawn) {
   updateHud();
 }
 
-function respawn() {
+function respawn(reason = "unknown") {
+  logEvent("respawn", { reason });
+  state.lastRespawn = reason;
   state.roomIndex = state.checkpoint.roomIndex;
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
   state.helmetOwned = state.checkpoint.helmetOwned;
@@ -154,13 +169,29 @@ function changeRoom(dir) {
   const targetId = state.room.links[dir];
   if (!targetId) return false;
   const { player } = state;
+  const fromId = state.room.id;
   let spawn = [player.x, player.y];
-  if (dir === "r") spawn = [6, player.y];
-  if (dir === "l") spawn = [WIDTH - player.w - 6, player.y];
+  if (dir === "r") spawn = safeSideSpawn(targetId, "l", 6, player.y);
+  if (dir === "l") spawn = safeSideSpawn(targetId, "r", WIDTH - player.w - 6, player.y);
   if (dir === "u") spawn = [(EXIT_BOTTOM_X + 1) * TILE + 4, ROOM_FLOOR * TILE - player.h - 2];
   if (dir === "d") spawn = [(EXIT_TOP_X + 1) * TILE + 4, 6];
   loadRoom(targetId - 1, spawn);
+  logEvent("changeRoom", { dir, from: fromId, to: targetId, spawnX: Number(spawn[0].toFixed(2)), spawnY: Number(spawn[1].toFixed(2)) });
   return true;
+}
+
+function safeSideSpawn(targetId, side, x, fallbackY) {
+  const roomDef = state.worldRooms[targetId - 1];
+  const col = side === "l" ? 0 : COLS - 1;
+  const rows = [];
+  for (let row = 1; row < ROWS - 1; row += 1) {
+    if (roomDef.blocks[row]?.[col] === ".") rows.push(row);
+  }
+  const desiredRow = Math.max(1, Math.min(ROWS - 2, Math.floor((fallbackY + state.player.h / 2) / TILE)));
+  const row = rows.length ? rows.reduce((best, current) =>
+    Math.abs(current - desiredRow) < Math.abs(best - desiredRow) ? current : best
+  ) : desiredRow;
+  return [x, row * TILE + TILE - state.player.h];
 }
 
 function inSideExit(side) {
@@ -186,7 +217,7 @@ function inBottomExit() {
 function update(dt) {
   const input = inputState();
 
-  if (oneShot("KeyR")) respawn();
+  if (oneShot("KeyR")) respawn("manual");
   if (oneShot("KeyM")) state.mapOpen = !state.mapOpen;
   if (oneShot("KeyN")) changeRoom("r") || loadRoom(state.roomIndex + 1, [70, ROOM_FLOOR * TILE - 28]);
   if (oneShot("KeyP")) changeRoom("l") || loadRoom(state.roomIndex - 1, [WIDTH - 70, ROOM_FLOOR * TILE - 28]);
@@ -240,7 +271,7 @@ function update(dt) {
   const fellOut = state.form === "black"
     ? player.y > ROWS * TILE + 360
     : player.y > ROWS * TILE + 100;
-  if (fellOut) respawn();
+  if (fellOut) respawn("fall");
   state.shake = Math.max(0, state.shake - 25 * dt);
   updateDebugPanel();
   sendDebugSnapshot(dt);
@@ -290,6 +321,8 @@ function debugSnapshot() {
       down: keys.has("ArrowDown") || keys.has("KeyS"),
       space: keys.has("Space"),
     },
+    lastRespawn: state.lastRespawn,
+    eventLog: state.eventLog,
     plagueCount: p.plague.length,
     lastPlague: lastPlague ? {
       key: lastPlague.key,
@@ -388,7 +421,7 @@ function surviveHazard(player) {
     refreshRoll(player);
     return true;
   }
-  respawn();
+  respawn("hazard");
   return false;
 }
 
@@ -431,7 +464,7 @@ function handleEnemies() {
       enemy.alive = false;
       player.vy = Math.min(player.vy, -360);
     } else if (player.rollTimer <= 0) {
-      respawn();
+      respawn("enemy");
       return;
     }
   }
