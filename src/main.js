@@ -1,7 +1,7 @@
 "use strict";
 
 import {
-  WIDTH, HEIGHT, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FORMS, GRAVITY,
+  WIDTH, HEIGHT, COLS, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FORMS, GRAVITY,
 } from "./constants.js";
 import { makePlayer } from "./player.js";
 import { parseRoom, worldRooms } from "./world.js";
@@ -163,9 +163,11 @@ function changeRoom(dir) {
   return true;
 }
 
-function inSideExit() {
+function inSideExit(side) {
   const cy = state.player.y + state.player.h / 2;
-  return cy >= (ROOM_FLOOR - 2) * TILE && cy <= ROOM_FLOOR * TILE;
+  const col = side === "l" ? 0 : COLS - 1;
+  const row = Math.max(0, Math.min(ROWS - 1, Math.floor(cy / TILE)));
+  return state.room.blocks[row]?.[col] === ".";
 }
 
 function inTopExit() {
@@ -474,9 +476,9 @@ function playRollRefresh() {
 
 function handleRoomEdges() {
   const { player } = state;
-  if (player.x <= 0 && inSideExit()) {
+  if (player.x <= 0 && inSideExit("l")) {
     if (!changeRoom("l")) player.x = 0;
-  } else if (player.x + player.w >= WIDTH && inSideExit()) {
+  } else if (player.x + player.w >= WIDTH && inSideExit("r")) {
     if (!changeRoom("r")) player.x = WIDTH - player.w;
   }
   if (player.y <= 0 && inTopExit()) {

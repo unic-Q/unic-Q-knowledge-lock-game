@@ -57,6 +57,27 @@ export const roomLinks = {
   50: { l: 49 },
 };
 
+const sideExitRows = {
+  3: [3, 4],
+  4: [8, 9],
+  5: [3, 4],
+  6: [8, 9],
+  7: [3, 4],
+  8: [8, 9],
+  9: [3, 4],
+  10: [8, 9],
+  11: [3, 4],
+  12: [8, 9],
+  13: [3, 4],
+  14: [8, 9],
+  15: [3, 4],
+  16: [8, 9],
+  17: [3, 4],
+  18: [8, 9],
+  19: [3, 4],
+  20: [8, 9],
+};
+
 const roomThemes = [
   "移动 / 跳跃 / 白色死区", "可选头盔", "双路线", "白色贴面", "白色死区",
   "白色钩锁", "红色四格脉冲", "红色QTE", "绿色墓碑残影", "黑色旋转侵蚀",
@@ -85,11 +106,12 @@ function makeRoomDef(id) {
     grid[y][COLS - 1] = "#";
   }
 
-  if (links.l) carveLeftExit(grid);
-  if (links.r) carveRightExit(grid);
+  if (links.l) carveLeftExit(grid, sideExitRows[id - 1]);
+  if (links.r) carveRightExit(grid, sideExitRows[id]);
   if (links.u) carveTopExit(grid);
   if (links.d) carveBottomExit(grid);
   applyRoomPattern(grid, id);
+  applyRouteLock(grid, id);
 
   return {
     id,
@@ -102,12 +124,12 @@ function makeRoomDef(id) {
   };
 }
 
-function carveLeftExit(grid) {
-  for (let y = ROOM_FLOOR - 2; y <= ROOM_FLOOR - 1; y += 1) grid[y][0] = ".";
+function carveLeftExit(grid, rows = [ROOM_FLOOR - 2, ROOM_FLOOR - 1]) {
+  for (const y of rows) grid[y][0] = ".";
 }
 
-function carveRightExit(grid) {
-  for (let y = ROOM_FLOOR - 2; y <= ROOM_FLOOR - 1; y += 1) grid[y][COLS - 1] = ".";
+function carveRightExit(grid, rows = [ROOM_FLOOR - 2, ROOM_FLOOR - 1]) {
+  for (const y of rows) grid[y][COLS - 1] = ".";
 }
 
 function carveTopExit(grid) {
@@ -137,6 +159,27 @@ function pillar(grid, x, y1, y2, ch = "#") {
   for (let y = y1; y <= y2; y += 1) put(grid, x, y, ch);
 }
 
+function clearCells(grid, chars) {
+  for (let y = 1; y < ROWS - 1; y += 1) {
+    for (let x = 1; x < COLS - 1; x += 1) {
+      if (chars.includes(grid[y][x])) grid[y][x] = ".";
+    }
+  }
+}
+
+function applyRouteLock(grid, id) {
+  if (id < 3 || id > 20) return;
+  clearCells(grid, "KD");
+  if (id === 14 || id === 20) {
+    line(grid, 1, 2, 3);
+    put(grid, 1, 2, "K");
+  } else {
+    line(grid, 12, 15, 3);
+    put(grid, 14, 2, "K");
+  }
+  pillar(grid, 26, 1, 9, "D");
+}
+
 function applyRoomPattern(grid, id) {
   if (id === 1) {
     line(grid, 5, 8, 8);
@@ -148,27 +191,36 @@ function applyRoomPattern(grid, id) {
   }
   if (id === 2) return;
   if (id === 3) {
-    line(grid, 5, 8, 8);
-    line(grid, 12, 14, 7);
-    line(grid, 18, 21, 8, "!");
-    line(grid, 22, 25, 8);
-    put(grid, 11, 8, "R");
+    line(grid, 1, 2, 6);
+    put(grid, 1, 5, "K");
+    line(grid, 3, 5, 8);
+    pillar(grid, 6, 6, 9);
+    line(grid, 8, 9, 8);
+    line(grid, 10, 11, 6);
+    put(grid, 12, 8, "R");
+    line(grid, 14, 15, 8);
+    line(grid, 16, 20, 8, "!");
+    line(grid, 22, 25, 7);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 4) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 7, 8);
     line(grid, 10, 12, 7);
     put(grid, 13, 7, "M");
     line(grid, 15, 17, 5);
     put(grid, 19, 6, "M");
     line(grid, 19, 25, 8);
-    put(grid, 22, 9, "K");
-    put(grid, 25, 9, "D");
+    pillar(grid, 26, 1, 9, "D");
     line(grid, 8, 10, 8, "!");
     line(grid, 14, 16, 8, "!");
     return;
   }
   if (id === 5) {
+    line(grid, 2, 4, 5);
+    put(grid, 2, 4, "K");
     line(grid, 5, 9, 8);
     put(grid, 12, 9, "M");
     put(grid, 16, 9, "M");
@@ -178,160 +230,188 @@ function applyRoomPattern(grid, id) {
     line(grid, 10, 20, 6);
     line(grid, 10, 12, 8, "!");
     line(grid, 18, 20, 8, "!");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 6) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 8, 8);
     line(grid, 12, 15, 7);
     put(grid, 16, 6, "G");
     line(grid, 20, 25, 8);
     line(grid, 9, 11, 8, "!");
     line(grid, 17, 19, 5, "~");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 7) {
+    line(grid, 2, 4, 5);
+    put(grid, 3, 4, "K");
     line(grid, 5, 8, 8);
     put(grid, 12, 9, "M");
     put(grid, 16, 9, "M");
-    put(grid, 18, 9, "K");
-    put(grid, 23, 9, "D");
     line(grid, 19, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     line(grid, 20, 22, 8, "~");
     line(grid, 10, 18, 6);
     return;
   }
   if (id === 8) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 4, 7, 8);
     line(grid, 10, 12, 6);
     line(grid, 15, 17, 8);
     line(grid, 20, 22, 6);
     put(grid, 13, 7, "M");
     put(grid, 18, 5, "M");
-    put(grid, 23, 9, "K");
-    put(grid, 26, 9, "D");
     line(grid, 8, 9, 8, "!");
     line(grid, 14, 15, 8, "~");
     line(grid, 23, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 9) {
+    line(grid, 2, 4, 5);
+    put(grid, 2, 4, "K");
     line(grid, 5, 8, 5);
     line(grid, 20, 25, 5);
-    put(grid, 22, 5, "K");
-    put(grid, 26, 7, "D");
+    pillar(grid, 26, 1, 9, "D");
     line(grid, 10, 18, 8, "!");
     put(grid, 13, 8, "M");
     line(grid, 16, 18, 5, "~");
     return;
   }
   if (id === 10) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 7, 8);
     line(grid, 10, 13, 7);
     put(grid, 14, 6, "W");
     line(grid, 18, 25, 8, "!");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 11) {
+    line(grid, 2, 4, 5);
+    put(grid, 2, 4, "K");
     line(grid, 5, 8, 8);
     pillar(grid, 12, 5, 8);
     line(grid, 12, 18, 5);
     pillar(grid, 18, 5, 8);
     put(grid, 15, 6, "M");
     line(grid, 13, 17, 8, "!");
-    put(grid, 20, 9, "K");
-    put(grid, 24, 9, "D");
     line(grid, 21, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 12) {
+    line(grid, 1, 2, 4);
+    line(grid, 3, 4, 6);
+    put(grid, 1, 3, "K");
     line(grid, 6, 10, 8);
     put(grid, 13, 9, "M");
     put(grid, 17, 9, "M");
     line(grid, 20, 25, 8);
     line(grid, 11, 19, 6, "!");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 13) {
+    line(grid, 2, 4, 5);
+    put(grid, 3, 4, "K");
     line(grid, 5, 8, 8);
     line(grid, 11, 15, 6, "~");
-    put(grid, 16, 9, "K");
-    put(grid, 18, 9, "D");
     put(grid, 20, 9, "M");
     line(grid, 21, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 14) {
+    line(grid, 1, 2, 4);
+    line(grid, 3, 4, 6);
+    put(grid, 1, 3, "K");
     line(grid, 5, 8, 8);
     line(grid, 11, 14, 7);
     put(grid, 15, 6, "B");
     line(grid, 18, 25, 8);
     line(grid, 9, 11, 8, "!");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 15) {
+    line(grid, 1, 2, 4);
+    line(grid, 3, 4, 6);
+    put(grid, 1, 3, "K");
     line(grid, 5, 9, 8);
     line(grid, 11, 14, 9, "E");
     line(grid, 15, 18, 8);
     put(grid, 20, 9, "M");
-    put(grid, 22, 9, "K");
-    put(grid, 25, 9, "D");
     line(grid, 19, 21, 6, "~");
     line(grid, 21, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 16) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 8, 8);
-    put(grid, 10, 9, "K");
     line(grid, 11, 13, 8, "~");
     put(grid, 15, 9, "M");
     line(grid, 16, 18, 9, "E");
-    put(grid, 21, 9, "D");
     line(grid, 22, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 17) {
+    line(grid, 1, 2, 4);
+    line(grid, 3, 4, 6);
+    put(grid, 1, 3, "K");
     line(grid, 5, 8, 8);
     line(grid, 10, 14, 8, "E");
     line(grid, 15, 18, 7);
     put(grid, 20, 8, "M");
-    put(grid, 22, 9, "K");
-    put(grid, 26, 9, "D");
     line(grid, 15, 18, 5, "~");
     line(grid, 21, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 18) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 8, 8);
     line(grid, 11, 14, 6);
     line(grid, 16, 18, 8, "!");
     put(grid, 15, 5, "M");
-    put(grid, 19, 9, "K");
-    put(grid, 23, 9, "D");
     line(grid, 24, 26, 8);
     line(grid, 20, 22, 5, "~");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 19) {
+    line(grid, 2, 4, 5);
+    put(grid, 3, 4, "K");
     line(grid, 5, 8, 8);
     put(grid, 10, 9, "M");
     line(grid, 12, 15, 6, "~");
     line(grid, 16, 18, 9, "E");
     put(grid, 20, 9, "M");
-    put(grid, 21, 9, "K");
-    put(grid, 26, 9, "D");
     line(grid, 22, 24, 6, "!");
     line(grid, 22, 25, 8);
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 20) {
+    line(grid, 3, 5, 8);
+    put(grid, 5, 7, "K");
     line(grid, 5, 8, 8);
-    put(grid, 10, 9, "K");
     line(grid, 11, 13, 8, "~");
     put(grid, 15, 9, "M");
     line(grid, 16, 18, 9, "E");
-    put(grid, 21, 9, "D");
     line(grid, 22, 25, 8);
     line(grid, 24, 26, 5, "!");
+    pillar(grid, 26, 1, 9, "D");
     return;
   }
 

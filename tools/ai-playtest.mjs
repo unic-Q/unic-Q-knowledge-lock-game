@@ -6,6 +6,8 @@ const POPULATION = 25;
 const GENERATIONS = Math.ceil(MAX_EVALUATIONS / POPULATION);
 const STEPS = 360;
 const ACTIONS = [
+  "left",
+  "left_jump",
   "right",
   "right_jump",
   "jump",
@@ -90,13 +92,18 @@ function makeEnv(roomId) {
   const room = worldRooms[roomId - 1];
   const grid = roomGrid(room);
   const exits = [];
-  for (let y = ROOM_FLOOR - 2; y <= ROOM_FLOOR - 1; y += 1) {
+  const entries = [];
+  for (let y = 1; y < ROWS - 1; y += 1) {
+    if (grid[y][0] === ".") entries.push({ x: 1, y });
+  }
+  for (let y = 1; y < ROWS - 1; y += 1) {
     if (grid[y][COLS - 1] === ".") exits.push({ x: COLS - 1, y });
   }
   const ability = findCells(grid, "RGWB")[0] || null;
   const switches = findCells(grid, "K");
   const enemies = findCells(grid, "M");
   const erodes = findCells(grid, "E");
+  const gates = findCells(grid, "D");
   return {
     room,
     grid,
@@ -105,7 +112,8 @@ function makeEnv(roomId) {
     switches,
     enemies,
     erodes,
-    start: { x: 2, y: ROOM_FLOOR - 1 },
+    gates,
+    start: entries[entries.length - 1] || { x: 2, y: ROOM_FLOOR - 1 },
   };
 }
 
@@ -140,12 +148,24 @@ function features(state, env) {
   ];
 }
 
-function chooseAction(brain, q, key, xs, epsilon, mode) {
-  if (rand() < epsilon) return Math.floor(rand() * ACTIONS.length);
+function actionAllowed(name, state, mode) {
+  if (name === "roll") return mode === "no-helmet" && state.rollCd <= 0;
+  if (name === "red_dash") return state.hasRed && state.redCd <= 0;
+  if (name === "green_spirit" || name === "green_grave") return state.hasGreen;
+  if (name === "white_attach") return state.hasWhite && state.whiteCd <= 0;
+  if (name === "white_hook") return state.hasWhite && state.whiteCd <= 0;
+  if (name === "black_erode" || name === "black_rotate") return state.hasBlack && state.blackCd <= 0;
+  return true;
+}
+
+function chooseAction(brain, q, key, xs, epsilon, mode, state) {
+  const allowed = ACTIONS.map((name, index) => ({ name, index }))
+    .filter((action) => actionAllowed(action.name, state, mode));
+  if (rand() < epsilon) return allowed[Math.floor(rand() * allowed.length)].index;
   let best = 0;
   let bestScore = -Infinity;
   for (let a = 0; a < ACTIONS.length; a += 1) {
-    if (mode === "helmet" && ACTIONS[a] === "roll") continue;
+    if (!actionAllowed(ACTIONS[a], state, mode)) continue;
     const linear = brain[a].reduce((sum, w, i) => sum + w * xs[i], 0);
     const learned = q.get(`${key}|${a}`) || 0;
     const score = linear + learned;
@@ -162,9 +182,13 @@ function stateKey(state) {
 }
 
 function tryMove(state, env, dx, dy) {
-  const nx = Math.max(1, Math.min(COLS - 1, state.x + dx));
-  const ny = Math.max(1, Math.min(ROWS - 1, state.y + dy));
-  if (!solid(env.grid, nx, ny, state.eroded)) {
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  for (let i = 0; i < steps; i += 1) {
+    const nx = Math.max(1, Math.min(COLS - 1, state.x + (i < Math.abs(dx) ? sx : 0)));
+    const ny = Math.max(1, Math.min(ROWS - 1, state.y + (i < Math.abs(dy) ? sy : 0)));
+    if (solid(env.grid, nx, ny, state.eroded)) return;
     state.x = nx;
     state.y = ny;
   }
@@ -172,14 +196,25 @@ function tryMove(state, env, dx, dy) {
 
 function applyAction(state, env, action, mode) {
   const name = ACTIONS[action];
+  if (name === "left") tryMove(state, env, -1, 0);
+  if (name === "left_jump") {
+    tryMove(state, env, -1, 0);
+    if (solid(env.grid, state.x, state.y + 1, state.eroded)) tryMove(state, env, 0, -2);
+  }
   if (name === "right") tryMove(state, env, 1, 0);
   if (name === "right_jump") {
     tryMove(state, env, 1, 0);
     if (solid(env.grid, state.x, state.y + 1, state.eroded)) tryMove(state, env, 0, -2);
   }
   if (name === "jump" && solid(env.grid, state.x, state.y + 1, state.eroded)) tryMove(state, env, 0, -2);
-  if (name === "roll" && mode === "no-helmet") tryMove(state, env, 2, 0);
-  if (name === "red_dash" && state.hasRed) tryMove(state, env, 4, 0);
+  if (name === "roll" && mode === "no-helmet" && state.rollCd <= 0) {
+    tryMove(state, env, 2, 0);
+    state.rollCd = 12;
+  }
+  if (name === "red_dash" && state.hasRed && state.redCd <= 0) {
+    tryMove(state, env, 4, 0);
+    state.redCd = 10;
+  }
   if (name === "green_spirit" && state.hasGreen) {
     state.spirit = !state.spirit;
     tryMove(state, env, 1, state.spirit ? -1 : 0);
@@ -187,15 +222,25 @@ function applyAction(state, env, action, mode) {
   if (name === "green_grave" && state.hasGreen) {
     state.grave = { x: state.x, y: state.y };
   }
-  if (name === "white_attach" && state.hasWhite) tryMove(state, env, 2, -1);
-  if (name === "white_hook" && state.hasWhite) tryMove(state, env, 3, -2);
-  if (name === "black_erode" && state.hasBlack) {
+  if (name === "white_attach" && state.hasWhite && state.whiteCd <= 0) {
+    tryMove(state, env, 2, -1);
+    state.whiteCd = 14;
+  }
+  if (name === "white_hook" && state.hasWhite && state.whiteCd <= 0) {
+    tryMove(state, env, 3, -2);
+    state.whiteCd = 18;
+  }
+  if (name === "black_erode" && state.hasBlack && state.blackCd <= 0) {
     const targets = [[state.x, state.y + 1], [state.x + 1, state.y + 1], [state.x, state.y]];
     for (const [x, y] of targets) {
       if (env.grid[y]?.[x] === "E") state.eroded.add(`${x},${y}`);
     }
+    state.blackCd = 18;
   }
-  if (name === "black_rotate" && state.hasBlack) tryMove(state, env, 0, 1);
+  if (name === "black_rotate" && state.hasBlack && state.blackCd <= 0) {
+    tryMove(state, env, 0, 1);
+    state.blackCd = 16;
+  }
 
   if (!state.spirit && !solid(env.grid, state.x, state.y + 1, state.eroded)) tryMove(state, env, 0, 1);
 }
@@ -209,6 +254,9 @@ function updateInteractions(state, env, mode) {
     if (cell === "B") state.hasBlack = true;
   }
   if (cell === "K" && (!state.spirit || state.grave)) state.switches += 1;
+  if (cell === "K" && (!state.spirit || state.grave)) {
+    for (const gate of env.gates) state.eroded.add(`${gate.x},${gate.y}`);
+  }
   if (cell === "M" && (state.hasRed || state.hasBlack)) state.kills += 1;
 }
 
@@ -227,6 +275,10 @@ function evaluate(brain, env, mode, inheritedQ = null) {
     hasGreen: mode === "helmet" && env.room.id > 6,
     hasWhite: mode === "helmet" && env.room.id > 10,
     hasBlack: mode === "helmet" && env.room.id > 14,
+    rollCd: 0,
+    redCd: 0,
+    whiteCd: 0,
+    blackCd: 0,
   };
   let reward = 0;
   let cleared = false;
@@ -237,10 +289,14 @@ function evaluate(brain, env, mode, inheritedQ = null) {
     const beforeY = state.y;
     const key = stateKey(state);
     const xs = features(state, env);
-    const action = chooseAction(brain, q, key, xs, 0.08, mode);
+    const action = chooseAction(brain, q, key, xs, 0.08, mode, state);
     used.add(ACTIONS[action]);
     applyAction(state, env, action, mode);
     updateInteractions(state, env, mode);
+    state.rollCd = Math.max(0, state.rollCd - 1);
+    state.redCd = Math.max(0, state.redCd - 1);
+    state.whiteCd = Math.max(0, state.whiteCd - 1);
+    state.blackCd = Math.max(0, state.blackCd - 1);
 
     let r = (state.x - beforeX) * 0.9 - 0.04;
     if (state.y !== beforeY) r += 0.04;
@@ -260,7 +316,7 @@ function evaluate(brain, env, mode, inheritedQ = null) {
       reward += r;
       break;
     }
-    if (env.exits.some((exit) => Math.abs(exit.x - state.x) <= 1 && Math.abs(exit.y - state.y) <= 1)) {
+    if (env.exits.some((exit) => state.x >= exit.x && state.y === exit.y)) {
       r += 80;
       reward += r;
       cleared = true;
