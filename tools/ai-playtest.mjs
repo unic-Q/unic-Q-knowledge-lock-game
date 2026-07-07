@@ -5,7 +5,7 @@ import { writeFileSync } from "node:fs";
 const MAX_EVALUATIONS = 500;
 const POPULATION = 25;
 const GENERATIONS = Math.ceil(MAX_EVALUATIONS / POPULATION);
-const STEPS = 360;
+const STEPS = 100;
 const ACTIONS = [
   "left",
   "left_jump",
@@ -254,11 +254,15 @@ function updateInteractions(state, env, mode) {
     if (cell === "W") state.hasWhite = true;
     if (cell === "B") state.hasBlack = true;
   }
-  if (cell === "K" && (!state.spirit || state.grave)) state.switches += 1;
-  if (cell === "K" && (!state.spirit || state.grave)) {
+  if (cell === "K" && (!state.spirit || state.grave) && !state.pressedSwitches.has(`${state.x},${state.y}`)) {
+    state.pressedSwitches.add(`${state.x},${state.y}`);
+    state.switches += 1;
     for (const gate of env.gates) state.eroded.add(`${gate.x},${gate.y}`);
   }
-  if (cell === "M" && (state.hasRed || state.hasBlack)) state.kills += 1;
+  if (cell === "M" && (state.hasRed || state.hasBlack) && !state.killedEnemies.has(`${state.x},${state.y}`)) {
+    state.killedEnemies.add(`${state.x},${state.y}`);
+    state.kills += 1;
+  }
 }
 
 function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
@@ -269,6 +273,8 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     bestX: env.start.x,
     switches: 0,
     kills: 0,
+    pressedSwitches: new Set(),
+    killedEnemies: new Set(),
     spirit: false,
     grave: null,
     eroded: new Set(),
@@ -289,6 +295,8 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
   for (let step = 0; step < STEPS; step += 1) {
     const beforeX = state.x;
     const beforeY = state.y;
+    const beforeSwitches = state.switches;
+    const beforeKills = state.kills;
     const key = stateKey(state);
     const xs = features(state, env);
     const action = chooseAction(brain, q, key, xs, options.epsilon ?? 0.08, mode, state);
@@ -300,31 +308,42 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     state.whiteCd = Math.max(0, state.whiteCd - 1);
     state.blackCd = Math.max(0, state.blackCd - 1);
 
-    let r = (state.x - beforeX) * 0.9 - 0.04;
-    if (state.y !== beforeY) r += 0.04;
+    const actionName = ACTIONS[action];
+    const movedX = state.x !== beforeX;
+    const movedY = state.y !== beforeY;
+    const jumped = actionName.includes("jump");
+    let r = -0.03;
+    if (movedX) r += Math.abs(state.x - beforeX) * 0.08;
+    if (jumped) r += 0.08;
+    if (!movedX && !movedY) r -= 0.25;
+    if (jumped && !movedX) r -= 0.25;
     if (state.x > state.bestX) {
-      r += (state.x - state.bestX) * 1.6;
       state.bestX = state.x;
     }
-    if (state.switches) r += 0.6;
-    if (state.kills) r += 0.5;
+    if (state.switches > beforeSwitches) r += 30;
+    if (state.kills > beforeKills) r += 12;
     let event = "";
-    if (deadly(env.grid, state.x, state.y) && !(ACTIONS[action] === "roll" && mode === "no-helmet") && !state.spirit) {
-      r -= 18;
+    const touchingDeadly = deadly(env.grid, state.x, state.y);
+    const survivedDeadly = touchingDeadly && ((ACTIONS[action] === "roll" && mode === "no-helmet") || state.spirit);
+    if (touchingDeadly && !survivedDeadly) {
+      r -= 220;
       reward += r;
       event = "deadly";
       if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
+    } else if (survivedDeadly) {
+      r += 120;
+      event = "survived_deadly";
     }
     if (state.y >= ROWS - 1) {
-      r -= 12;
+      r -= 180;
       reward += r;
       event = "fell";
       if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
     }
     if (env.exits.some((exit) => state.x >= exit.x && state.y === exit.y)) {
-      r += 80;
+      r += 500;
       reward += r;
       cleared = true;
       event = "cleared";
@@ -343,6 +362,12 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     q.set(qKey, old + 0.18 * (r + 0.88 * future - old));
     reward += r;
     if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
+  }
+  if (!cleared) {
+    reward -= 180;
+    if (options.recordTrace) {
+      trace.push(traceStep(STEPS, state, "timeout", -180, reward, "timeout"));
+    }
   }
 
   return {
