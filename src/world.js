@@ -172,6 +172,21 @@ function clearCells(grid, chars) {
 function applyRouteLock(grid, id) {
   if (id < 3 || id > 20) return;
   clearCells(grid, "KD");
+  if (id === 3) {
+    line(grid, 1, 2, 5);
+    put(grid, 1, 4, "K");
+  } else if (id === 14) {
+    put(grid, 23, 7, "K");
+  } else if (id === 18) {
+    put(grid, 21, 7, "K");
+  } else if (id % 2 === 0) {
+    line(grid, 3, 5, 7);
+    put(grid, 5, 6, "K");
+  } else {
+    line(grid, 2, 4, 5);
+    put(grid, 3, 4, "K");
+  }
+  pillar(grid, 26, 1, 9, "D");
 }
 
 function applyRoomPattern(grid, id) {
@@ -322,15 +337,16 @@ function applyRoomPattern(grid, id) {
     return;
   }
   if (id === 14) {
-    line(grid, 1, 2, 4);
-    line(grid, 3, 4, 6);
-    put(grid, 1, 3, "K");
     line(grid, 5, 8, 8);
     line(grid, 11, 14, 7);
     put(grid, 15, 6, "B");
-    line(grid, 18, 25, 8);
+    line(grid, 16, 22, 7, "E");
+    line(grid, 20, 25, 6, "E");
+    line(grid, 24, 25, 7, "E");
+    put(grid, 23, 7, ".");
+    line(grid, 20, 25, 8);
+    pillar(grid, 19, 6, 8, "E");
     line(grid, 9, 11, 8, "!");
-    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 15) {
@@ -372,14 +388,13 @@ function applyRoomPattern(grid, id) {
   }
   if (id === 18) {
     line(grid, 3, 5, 8);
-    put(grid, 5, 7, "K");
     line(grid, 5, 8, 8);
     line(grid, 11, 14, 6);
     line(grid, 16, 18, 8, "!");
     put(grid, 15, 5, "M");
+    line(grid, 19, 23, 7, "E");
     line(grid, 24, 26, 8);
     line(grid, 20, 22, 5, "~");
-    pillar(grid, 26, 1, 9, "D");
     return;
   }
   if (id === 19) {

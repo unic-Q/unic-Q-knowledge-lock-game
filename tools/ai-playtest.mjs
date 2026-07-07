@@ -28,6 +28,12 @@ const ELITE_COUNT = 5;
 const MUTATION = 0.22;
 let seed = 20260707;
 
+function seedFor(roomId, mode) {
+  let value = 20260707 + roomId * 1009;
+  for (const ch of mode) value = (value * 33 + ch.charCodeAt(0)) >>> 0;
+  seed = value >>> 0;
+}
+
 function rand() {
   seed = (seed * 1664525 + 1013904223) >>> 0;
   return seed / 2 ** 32;
@@ -275,6 +281,7 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     kills: 0,
     pressedSwitches: new Set(),
     killedEnemies: new Set(),
+    survivedHazards: new Set(),
     spirit: false,
     grave: null,
     eroded: new Set(),
@@ -332,8 +339,14 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
       if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
     } else if (survivedDeadly) {
-      r += 120;
-      event = "survived_deadly";
+      const hazardKey = `${state.x},${state.y}`;
+      if (!state.survivedHazards.has(hazardKey)) {
+        state.survivedHazards.add(hazardKey);
+        r += 120;
+        event = "survived_deadly";
+      } else {
+        event = "staying_on_deadly";
+      }
     }
     if (state.y >= ROWS - 1) {
       r -= 180;
@@ -408,21 +421,24 @@ function traceStep(step, state, action, rewardDelta, rewardTotal, event) {
 }
 
 function trainRoom(roomId, mode, collectTrace = false) {
+  seedFor(roomId, mode);
   const env = makeEnv(roomId);
   let population = Array.from({ length: POPULATION }, () => ({ brain: makeBrain(), q: new Map() }));
   let best = null;
+  let bestClear = null;
   let evaluations = 0;
   let clearAt = null;
 
   for (let generation = 1; generation <= GENERATIONS; generation += 1) {
     const scored = population.map((agent) => {
       evaluations += 1;
-      const result = evaluate(agent.brain, env, mode, agent.q);
+      const result = evaluate(agent.brain, env, mode, agent.q, collectTrace ? { recordTrace: true } : {});
       return { ...agent, ...result };
     }).sort((a, b) => b.reward - a.reward);
 
     if (!best || scored[0].reward > best.reward) best = scored[0];
     const clear = scored.find((agent) => agent.cleared);
+    if (clear && (!bestClear || clear.reward > bestClear.reward)) bestClear = clear;
     if (clear && clearAt === null) clearAt = evaluations - scored.length + scored.indexOf(clear) + 1;
     if (evaluations >= MAX_EVALUATIONS) break;
 
@@ -438,7 +454,7 @@ function trainRoom(roomId, mode, collectTrace = false) {
   const exit = env.exits[0] || { x: COLS - 1, y: ROOM_FLOOR - 1 };
   const startHeight = env.start.y;
   const exitHeight = exit.y;
-  const replay = collectTrace ? evaluate(best.brain, env, mode, best.q, { recordTrace: true, epsilon: 0 }) : null;
+  const replayAgent = collectTrace && bestClear ? bestClear : best;
   return {
     roomId,
     mode,
@@ -453,9 +469,10 @@ function trainRoom(roomId, mode, collectTrace = false) {
     grid: collectTrace ? env.grid.map((row) => row.join("")) : undefined,
     start: collectTrace ? env.start : undefined,
     exits: collectTrace ? env.exits : undefined,
-    trace: collectTrace ? replay.trace : undefined,
-    replayCleared: collectTrace ? replay.cleared : undefined,
-    replayReward: collectTrace ? replay.reward : undefined,
+    trace: collectTrace ? replayAgent.trace : undefined,
+    replayCleared: collectTrace ? replayAgent.cleared : undefined,
+    replayReward: collectTrace ? replayAgent.reward : undefined,
+    replaySource: collectTrace ? (bestClear ? "cleared-agent" : "best-reward-agent") : undefined,
   };
 }
 
@@ -475,6 +492,39 @@ if (traceIndex >= 0) {
   writeFileSync("tools/ai-trace.json", JSON.stringify(payload, null, 2));
   console.log(`Wrote tools/ai-trace.json for room ${roomId} ${mode}.`);
   console.log(`best progress=${result.progress.toFixed(2)} clearAt=${result.clearAt ?? "not-cleared"} replayCleared=${result.replayCleared}`);
+  process.exit(0);
+}
+
+const traceFirstIndex = process.argv.indexOf("--trace-first-clear");
+if (traceFirstIndex >= 0) {
+  const fromRoom = Number(process.argv[traceFirstIndex + 1] || 3);
+  const toRoom = Number(process.argv[traceFirstIndex + 2] || 20);
+  let selected = null;
+  for (let roomId = fromRoom; roomId <= toRoom && !selected; roomId += 1) {
+    for (const mode of ["helmet", "no-helmet"]) {
+      const result = trainRoom(roomId, mode, true);
+      const status = result.clearAt ? `CLEARED@${result.clearAt}` : "not-cleared";
+      console.log(`room ${String(roomId).padStart(2, "0")} ${mode.padEnd(9)} ${status}`);
+      if (result.clearAt) {
+        selected = result;
+        break;
+      }
+    }
+  }
+  if (!selected) {
+    console.log("No clear found.");
+    process.exit(1);
+  }
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    actions: ACTIONS,
+    cols: COLS,
+    rows: ROWS,
+    maxEvaluations: MAX_EVALUATIONS,
+    result: selected,
+  };
+  writeFileSync("tools/ai-trace.json", JSON.stringify(payload, null, 2));
+  console.log(`Wrote tools/ai-trace.json for first clear: room ${selected.roomId} ${selected.mode}.`);
   process.exit(0);
 }
 

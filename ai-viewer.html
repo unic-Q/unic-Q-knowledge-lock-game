@@ -210,7 +210,8 @@
 
     function updatePanel(step) {
       const result = data.result;
-      ui.meta.textContent = `Generated ${data.generatedAt}, ${result.trace.length} steps, best progress ${result.progress.toFixed(2)}`;
+      const clearState = result.replayCleared ? "CLEARED" : "best failed attempt";
+      ui.meta.textContent = `Generated ${data.generatedAt}, ${clearState}, ${result.trace.length} steps, best progress ${result.progress.toFixed(2)}`;
       ui.room.textContent = result.roomId;
       ui.mode.textContent = result.mode;
       ui.step.textContent = step ? `${step.step} / ${result.trace.length - 1}` : "-";
