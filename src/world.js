@@ -178,7 +178,7 @@ function applyRouteLock(grid, id) {
   } else if (id === 14) {
     put(grid, 23, 7, "K");
   } else if (id === 18) {
-    put(grid, 21, 7, "K");
+    put(grid, 21, 4, "K");
   } else if (id % 2 === 0) {
     line(grid, 3, 5, 7);
     put(grid, 5, 6, "K");
@@ -392,7 +392,9 @@ function applyRoomPattern(grid, id) {
     line(grid, 11, 14, 6);
     line(grid, 16, 18, 8, "!");
     put(grid, 15, 5, "M");
+    line(grid, 19, 23, 5, "E");
     line(grid, 19, 23, 7, "E");
+    put(grid, 21, 5, ".");
     line(grid, 24, 26, 8);
     line(grid, 20, 22, 5, "~");
     return;

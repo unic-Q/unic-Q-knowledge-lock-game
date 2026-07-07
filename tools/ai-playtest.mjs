@@ -282,6 +282,8 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     pressedSwitches: new Set(),
     killedEnemies: new Set(),
     survivedHazards: new Set(),
+    visitedCells: new Map([[`${env.start.x},${env.start.y}`, 1]]),
+    currentVisits: 1,
     spirit: false,
     grave: null,
     eroded: new Set(),
@@ -330,6 +332,14 @@ function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
     if (state.switches > beforeSwitches) r += 30;
     if (state.kills > beforeKills) r += 12;
     let event = "";
+    const visitKey = `${state.x},${state.y}`;
+    const previousVisits = state.visitedCells.get(visitKey) || 0;
+    state.currentVisits = previousVisits + 1;
+    state.visitedCells.set(visitKey, state.currentVisits);
+    if (previousVisits > 0) {
+      r -= previousVisits * previousVisits * 0.18;
+      event = "repeat_visit";
+    }
     const touchingDeadly = deadly(env.grid, state.x, state.y);
     const survivedDeadly = touchingDeadly && ((ACTIONS[action] === "roll" && mode === "no-helmet") || state.spirit);
     if (touchingDeadly && !survivedDeadly) {
@@ -403,6 +413,7 @@ function traceStep(step, state, action, rewardDelta, rewardTotal, event) {
     rewardDelta: Number(rewardDelta.toFixed(2)),
     rewardTotal: Number(rewardTotal.toFixed(2)),
     event,
+    visits: state.currentVisits,
     spirit: state.spirit,
     switches: state.switches,
     kills: state.kills,

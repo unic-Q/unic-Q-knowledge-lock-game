@@ -122,6 +122,7 @@
         <dt>Action</dt><dd id="action">-</dd>
         <dt>Position</dt><dd id="pos">-</dd>
         <dt>Reward</dt><dd id="reward">-</dd>
+        <dt>Visits</dt><dd id="visits">-</dd>
         <dt>Event</dt><dd id="event">-</dd>
         <dt>Switch/Kill</dt><dd id="switches">-</dd>
         <dt>Forms</dt><dd id="forms">-</dd>
@@ -134,7 +135,7 @@
     const tile = 32;
     const canvas = document.querySelector("#view");
     const ctx = canvas.getContext("2d");
-    const ui = Object.fromEntries(["meta", "room", "mode", "step", "action", "pos", "reward", "event", "switches", "forms", "actions"]
+    const ui = Object.fromEntries(["meta", "room", "mode", "step", "action", "pos", "reward", "visits", "event", "switches", "forms", "actions"]
       .map((id) => [id, document.querySelector(`#${id}`)]));
     const scrub = document.querySelector("#scrub");
     const buttons = {
@@ -218,6 +219,7 @@
       ui.action.textContent = step?.action || "-";
       ui.pos.textContent = step ? `${step.x}, ${step.y}` : "-";
       ui.reward.textContent = step ? `${step.rewardDelta} / ${step.rewardTotal}` : "-";
+      ui.visits.textContent = step?.visits ?? "-";
       ui.event.textContent = step?.event || "-";
       ui.switches.textContent = step ? `${step.switches} / ${step.kills}` : "-";
       ui.forms.textContent = step ? ["R", "G", "W", "B"].filter((label) => step[`has${{R:"Red",G:"Green",W:"White",B:"Black"}[label]}`]).join(" ") || "-" : "-";
