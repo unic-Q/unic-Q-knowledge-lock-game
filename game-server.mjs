@@ -43,6 +43,6 @@ const server = createServer((req, res) => {
   createReadStream(file).pipe(res);
 });
 
-server.listen(port, "127.0.0.1", () => {
+server.listen(port, () => {
   console.log(`Game server listening on http://127.0.0.1:${port}/index.html`);
 });
