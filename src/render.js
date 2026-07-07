@@ -1,6 +1,6 @@
 "use strict";
 
-import { FORMS, RED_QTE_READY, RED_QTE_TIME } from "./constants.js";
+import { TILE, COLS, ROWS, FORMS, RED_QTE_READY, RED_QTE_TIME } from "./constants.js";
 import { transformedRect, isGreenAfterimage } from "./physics.js";
 
 function drawRect(ctx, r, fill, stroke) {
@@ -30,6 +30,7 @@ function drawFlag(ctx, flag, raised, progress = 1) {
 }
 
 function drawHelmet(ctx, item) {
+  const form = item.form || "red";
   ctx.fillStyle = "#d8dde7";
   ctx.beginPath();
   ctx.arc(item.x + 12, item.y + 13, 12, Math.PI, Math.PI * 2);
@@ -40,11 +41,28 @@ function drawHelmet(ctx, item) {
   ctx.strokeStyle = "#f4c95d";
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = "#7fa083";
+  ctx.fillStyle = FORMS[form].color;
   ctx.fillRect(item.x + 5, item.y + 15, 14, 3);
 }
 
 function drawPlagueStain(ctx, stain, alpha = 1) {
+  if (stain.cell) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.fillStyle = "rgba(235,247,225,0.56)";
+    ctx.fillRect(stain.x + 3, stain.y + 3, stain.w - 6, stain.h - 6);
+    ctx.strokeStyle = "rgba(147,176,132,0.86)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(stain.x + 4, stain.y + 4, stain.w - 8, stain.h - 8);
+    ctx.fillStyle = "rgba(147,176,132,0.5)";
+    ctx.beginPath();
+    ctx.ellipse(stain.x + 12, stain.y + 13, 5, 8, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(stain.x + 22, stain.y + 20, 4, 6, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
   if (Number.isFinite(stain.a) && Number.isFinite(stain.b)) {
     drawPlagueSegment(ctx, stain, alpha);
     return;
@@ -202,7 +220,172 @@ export function draw(ctx, state) {
     ctx.fillText(["→", "↓", "←", "↑"][state.worldRot], 24, 34);
   }
   if (state.choosing) drawChoiceOverlay(ctx, state);
+  if (state.mapOpen) drawMapOverlay(ctx, state);
   ctx.restore();
+}
+
+function drawMapOverlay(ctx, state) {
+  const positions = buildRoomPositions(state.worldRooms);
+  const explored = state.exploredRooms || new Set();
+  const exploredPositions = state.worldRooms
+    .filter((room) => explored.has(room.id))
+    .map((room) => positions.get(room.id))
+    .filter(Boolean);
+
+  ctx.save();
+  ctx.fillStyle = "rgba(10, 14, 20, 0.78)";
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  ctx.font = "700 24px Microsoft YaHei, sans-serif";
+  ctx.fillStyle = "#e8eef4";
+  ctx.textAlign = "left";
+  ctx.fillText("地图", 52, 58);
+  ctx.font = "14px Microsoft YaHei, sans-serif";
+  ctx.fillStyle = "rgba(232,238,244,0.72)";
+  ctx.fillText("已探索房间按缩略图拼接；未知房间隐藏", 52, 84);
+
+  if (!exploredPositions.length) {
+    ctx.restore();
+    return;
+  }
+
+  const minX = Math.min(...exploredPositions.map((p) => p.x));
+  const maxX = Math.max(...exploredPositions.map((p) => p.x));
+  const minY = Math.min(...exploredPositions.map((p) => p.y));
+  const maxY = Math.max(...exploredPositions.map((p) => p.y));
+  const mapCols = maxX - minX + 1;
+  const mapRows = maxY - minY + 1;
+  const roomSize = Math.max(22, Math.floor(Math.min(
+    126,
+    (ctx.canvas.width - 96) / mapCols,
+    (ctx.canvas.height - 150) / mapRows,
+  )));
+  const mapW = mapCols * roomSize;
+  const mapH = mapRows * roomSize;
+  const originX = Math.round((ctx.canvas.width - mapW) / 2 - minX * roomSize);
+  const originY = Math.round((ctx.canvas.height - mapH) / 2 - minY * roomSize + 24);
+
+  for (const room of state.worldRooms) {
+    if (!explored.has(room.id)) continue;
+    const pos = positions.get(room.id);
+    if (!pos) continue;
+    const x = originX + pos.x * roomSize;
+    const y = originY + pos.y * roomSize;
+    drawRoomThumbnail(ctx, state, room, x, y, roomSize, positions, explored);
+  }
+
+  ctx.font = "13px Microsoft YaHei, sans-serif";
+  ctx.fillStyle = "rgba(232,238,244,0.66)";
+  ctx.textAlign = "right";
+  ctx.fillText("M / Esc 关闭", ctx.canvas.width - 52, ctx.canvas.height - 42);
+  ctx.restore();
+}
+
+function drawRoomThumbnail(ctx, state, room, x, y, roomSize, positions, explored) {
+  const cell = roomSize / COLS;
+  ctx.fillStyle = "#17222c";
+  ctx.fillRect(x, y, roomSize, roomSize);
+
+  const colors = {
+    "#": "#607487",
+    "=": "#758698",
+    X: "#875052",
+    H: "#3e654d",
+    E: "#6d5d38",
+    P: "#dcebd6",
+    A: "rgba(244,242,230,0.18)",
+  };
+
+  for (let row = 0; row < ROWS; row += 1) {
+    const line = room.blocks[row] || "";
+    for (let col = 0; col < COLS; col += 1) {
+      const ch = line[col] || ".";
+      const color = colors[ch];
+      if (!color) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(x + col * cell, y + row * cell, Math.ceil(cell), Math.ceil(cell));
+      if (ch === "A") {
+        ctx.fillStyle = "#f4f2e6";
+        ctx.beginPath();
+        ctx.arc(x + (col + 0.5) * cell, y + (row + 0.5) * cell, Math.max(1.5, cell * 0.32), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  if (room.flag) {
+    ctx.fillStyle = "#f4c95d";
+    ctx.fillRect(x + (room.flag.x / TILE) * cell, y + (room.flag.y / TILE) * cell, Math.max(2, cell * 0.6), Math.max(3, cell * 1.2));
+  }
+  if (room.helmet && !room.helmet.taken) {
+    ctx.fillStyle = FORMS[room.helmet.form || "red"].color;
+    ctx.beginPath();
+    ctx.arc(x + ((room.helmet.x + room.helmet.w / 2) / TILE) * cell, y + ((room.helmet.y + room.helmet.h / 2) / TILE) * cell, Math.max(2, cell * 0.45), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawUnknownExitMarks(ctx, room, x, y, roomSize, explored);
+
+  const isCurrent = room.id === state.room.id;
+  ctx.strokeStyle = isCurrent ? "#f4c95d" : "rgba(128,146,164,0.58)";
+  ctx.lineWidth = isCurrent ? 3 : 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, roomSize - 1, roomSize - 1);
+  if (isCurrent) {
+    ctx.fillStyle = "#f4c95d";
+    ctx.font = "700 11px Microsoft YaHei, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(String(room.id), x + roomSize / 2, y + 15);
+  }
+}
+
+function drawUnknownExitMarks(ctx, room, x, y, roomSize, explored) {
+  const mark = Math.max(6, roomSize * 0.12);
+  ctx.strokeStyle = "rgba(244,201,93,0.78)";
+  ctx.lineWidth = Math.max(2, roomSize * 0.018);
+  ctx.beginPath();
+  for (const [dir, targetId] of Object.entries(room.links)) {
+    if (explored.has(targetId)) continue;
+    if (dir === "l") {
+      ctx.moveTo(x, y + roomSize / 2 - mark);
+      ctx.lineTo(x, y + roomSize / 2 + mark);
+    } else if (dir === "r") {
+      ctx.moveTo(x + roomSize, y + roomSize / 2 - mark);
+      ctx.lineTo(x + roomSize, y + roomSize / 2 + mark);
+    } else if (dir === "u") {
+      ctx.moveTo(x + roomSize / 2 - mark, y);
+      ctx.lineTo(x + roomSize / 2 + mark, y);
+    } else if (dir === "d") {
+      ctx.moveTo(x + roomSize / 2 - mark, y + roomSize);
+      ctx.lineTo(x + roomSize / 2 + mark, y + roomSize);
+    }
+  }
+  ctx.stroke();
+}
+
+function buildRoomPositions(rooms) {
+  const positions = new Map([[1, { x: 0, y: 0 }]]);
+  const byId = new Map(rooms.map((room) => [room.id, room]));
+  const dirs = {
+    l: { x: -1, y: 0 },
+    r: { x: 1, y: 0 },
+    u: { x: 0, y: -1 },
+    d: { x: 0, y: 1 },
+  };
+  const queue = [1];
+  for (let i = 0; i < queue.length; i += 1) {
+    const id = queue[i];
+    const room = byId.get(id);
+    const pos = positions.get(id);
+    if (!room || !pos) continue;
+    for (const [dir, targetId] of Object.entries(room.links)) {
+      if (!byId.has(targetId) || positions.has(targetId)) continue;
+      const delta = dirs[dir];
+      if (!delta) continue;
+      positions.set(targetId, { x: pos.x + delta.x, y: pos.y + delta.y });
+      queue.push(targetId);
+    }
+  }
+  return positions;
 }
 
 function drawRedQte(ctx, player) {
@@ -247,6 +430,8 @@ function drawChoiceOverlay(ctx, state) {
   ctx.font = "700 22px Microsoft YaHei, sans-serif";
   ctx.textAlign = "center";
   for (const [id, text, x, y] of items) {
+    const unlocked = state.unlockedForms?.has(id);
+    ctx.globalAlpha = unlocked ? 1 : 0.24;
     ctx.fillStyle = state.selectedForm === id ? FORMS[id].color : "#596372";
     ctx.beginPath();
     ctx.arc(x, y, 30, 0, Math.PI * 2);
@@ -254,5 +439,6 @@ function drawChoiceOverlay(ctx, state) {
     ctx.fillStyle = "#10141b";
     ctx.fillText(text, x, y + 8);
   }
+  ctx.globalAlpha = 1;
   ctx.textAlign = "left";
 }

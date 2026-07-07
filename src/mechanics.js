@@ -1,7 +1,8 @@
 "use strict";
 
 import {
-  GRAVITY, MOVE, JUMP, RED_DASH_DISTANCE, RED_DASH_TIME, RED_QTE_TIME, RED_QTE_READY,
+  COLS, ROWS, TILE, GRAVITY, MOVE, JUMP, NONE_DASH_SPEED, NONE_DASH_TIME, NONE_DASH_COOLDOWN,
+  RED_DASH_DISTANCE, RED_DASH_TIME, RED_QTE_TIME, RED_QTE_READY,
   WHITE_SURFACE_SPEED, WHITE_HOOK_RANGE, WHITE_HOOK_PULL, WHITE_HOOK_HOLD,
   WHITE_SNAP, ERODE_RATE, ERODE_FAST,
 } from "./constants.js";
@@ -12,6 +13,14 @@ import {
 
 export function updateNone(state, input, dt) {
   const { player } = state;
+  if (player.noneDash) {
+    player.noneDash.t -= dt;
+    player.vx = player.noneDash.dir * NONE_DASH_SPEED;
+    player.vy += GRAVITY * 0.65 * dt;
+    if (player.noneDash.t <= 0) player.noneDash = null;
+    return;
+  }
+
   if (input.left) {
     player.vx = -MOVE;
     player.facing = -1;
@@ -26,12 +35,18 @@ export function updateNone(state, input, dt) {
     player.y + player.h > b.y + 4 && player.y < b.y + b.h - 2
   );
   if (nearWall && !player.onGround && (input.left || input.right)) player.vy = Math.min(player.vy, 150);
-  if (input.up && (player.jumps < 2 || player.coyote > 0)) {
+  if (input.up && (player.jumps < 1 || player.coyote > 0)) {
     const boost = Math.min(120, Math.max(0, player.vy - 680) * 0.25);
     player.vy = -JUMP - boost;
     player.jumps += 1;
     player.coyote = 0;
     player.onGround = false;
+  }
+  if (input.spaceShot && player.noneDashCooldown <= 0) {
+    const dir = input.right ? 1 : input.left ? -1 : player.facing;
+    player.facing = dir;
+    player.noneDash = { t: NONE_DASH_TIME, dir };
+    player.noneDashCooldown = NONE_DASH_COOLDOWN;
   }
   if (input.down) player.dropTimer = 0.18;
   player.vy += GRAVITY * dt;
@@ -43,7 +58,6 @@ export function updateWhite(state, input, dt) {
 
   const surface = findWhiteSurface(state);
   if (surface) {
-    const previousSurface = player.whiteSurface;
     player.whiteSurface = { nx: surface.nx, ny: surface.ny, block: surface.block };
     snapWhiteToSurface(player, surface);
     const dir = input.right ? 1 : input.left ? -1 : 0;
@@ -62,10 +76,7 @@ export function updateWhite(state, input, dt) {
     player.vy = 0;
     if (dir !== 0) {
       player.facing = dir;
-      if (previousSurface && (previousSurface.nx !== player.whiteSurface.nx || previousSurface.ny !== player.whiteSurface.ny)) {
-        addPlagueSegment(player, player.whiteSurface, true);
-      }
-      addPlagueSegment(player, player.whiteSurface);
+      addPlagueCell(state);
     }
   } else {
     player.whiteSurface = null;
@@ -82,6 +93,27 @@ export function updateWhite(state, input, dt) {
   }
   if (input.up) shootWhiteHook(state, input.left ? -1 : input.right ? 1 : 0);
   updateWhiteHookPull(state, input.upHeld, dt);
+}
+
+function addPlagueCell(state) {
+  const { player } = state;
+  const cellX = Math.floor((player.x + player.w / 2) / TILE);
+  const cellY = Math.floor((player.y + player.h / 2) / TILE);
+  if (cellX < 0 || cellX >= COLS || cellY < 0 || cellY >= ROWS) return;
+  const key = `${cellX},${cellY}`;
+  if (player.plague.some((p) => p.key === key)) return;
+  player.plague.push({
+    cell: true,
+    key,
+    cellX,
+    cellY,
+    x: cellX * TILE,
+    y: cellY * TILE,
+    w: TILE,
+    h: TILE,
+    drip: (cellX * 7 + cellY * 13) % 5,
+    life: 999,
+  });
 }
 
 function sameNormalSurface(candidate, surface) {
@@ -177,63 +209,6 @@ function setWhiteCenterCoord(player, surface, coord) {
 function placeWhiteOnSurface(player, surface) {
   const limits = whiteCenterLimits(player, surface);
   setWhiteCenterCoord(player, surface, Math.max(limits.min, Math.min(limits.max, whiteCenterCoord(player, surface))));
-}
-
-function addPlagueSegment(player, surface, corner = false) {
-  const tx = -surface.ny;
-  const ty = surface.nx;
-  const contact = contactInterval(player, surface);
-  if (!contact) return;
-
-  const pad = corner ? 12 : 4;
-  const a = contact.a - pad;
-  const b = contact.b + pad;
-  const n = surface.nx * contact.x + surface.ny * contact.y;
-  const key = `${surface.nx},${surface.ny},${Math.round(n)}`;
-  const overlapPad = 10;
-  const existing = player.plague.find((p) =>
-    p.key === key && !(b < p.a - overlapPad || a > p.b + overlapPad)
-  );
-
-  if (existing) {
-    existing.a = Math.min(existing.a, a);
-    existing.b = Math.max(existing.b, b);
-    existing.corner = existing.corner || corner;
-    existing.seed = Math.min(existing.seed, player.plague.length);
-    return;
-  }
-
-  player.plague.push({
-    key,
-    a,
-    b,
-    n,
-    nx: surface.nx,
-    ny: surface.ny,
-    tx,
-    ty,
-    thick: corner ? 14 : 10,
-    corner,
-    seed: player.plague.length,
-    life: 999,
-  });
-}
-
-function contactInterval(player, surface) {
-  const b = surface.block;
-  if (surface.nx === 0) {
-    const a = Math.max(player.x, b.x);
-    const end = Math.min(player.x + player.w, b.x + b.w);
-    if (end - a < 5) return null;
-    const y = surface.ny === -1 ? b.y - 1 : b.y + b.h + 1;
-    return { a, b: end, x: (a + end) / 2, y };
-  }
-
-  const a = Math.max(player.y, b.y);
-  const end = Math.min(player.y + player.h, b.y + b.h);
-  if (end - a < 5) return null;
-  const x = surface.nx === -1 ? b.x - 1 : b.x + b.w + 1;
-  return { a, b: end, x, y: (a + end) / 2 };
 }
 
 function updateWhiteHookPull(state, upHeld, dt) {
