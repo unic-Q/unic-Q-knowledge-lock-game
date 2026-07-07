@@ -1,5 +1,6 @@
 import { worldRooms } from "../src/world.js";
 import { COLS, ROOM_FLOOR, ROWS } from "../src/constants.js";
+import { writeFileSync } from "node:fs";
 
 const MAX_EVALUATIONS = 500;
 const POPULATION = 25;
@@ -260,7 +261,7 @@ function updateInteractions(state, env, mode) {
   if (cell === "M" && (state.hasRed || state.hasBlack)) state.kills += 1;
 }
 
-function evaluate(brain, env, mode, inheritedQ = null) {
+function evaluate(brain, env, mode, inheritedQ = null, options = {}) {
   const q = inheritedQ ? new Map(inheritedQ) : new Map();
   const state = {
     x: env.start.x,
@@ -283,13 +284,14 @@ function evaluate(brain, env, mode, inheritedQ = null) {
   let reward = 0;
   let cleared = false;
   const used = new Set();
+  const trace = [];
 
   for (let step = 0; step < STEPS; step += 1) {
     const beforeX = state.x;
     const beforeY = state.y;
     const key = stateKey(state);
     const xs = features(state, env);
-    const action = chooseAction(brain, q, key, xs, 0.08, mode, state);
+    const action = chooseAction(brain, q, key, xs, options.epsilon ?? 0.08, mode, state);
     used.add(ACTIONS[action]);
     applyAction(state, env, action, mode);
     updateInteractions(state, env, mode);
@@ -306,20 +308,27 @@ function evaluate(brain, env, mode, inheritedQ = null) {
     }
     if (state.switches) r += 0.6;
     if (state.kills) r += 0.5;
+    let event = "";
     if (deadly(env.grid, state.x, state.y) && !(ACTIONS[action] === "roll" && mode === "no-helmet") && !state.spirit) {
       r -= 18;
       reward += r;
+      event = "deadly";
+      if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
     }
     if (state.y >= ROWS - 1) {
       r -= 12;
       reward += r;
+      event = "fell";
+      if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
     }
     if (env.exits.some((exit) => state.x >= exit.x && state.y === exit.y)) {
       r += 80;
       reward += r;
       cleared = true;
+      event = "cleared";
+      if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
       break;
     }
     const nextKey = stateKey(state);
@@ -333,6 +342,7 @@ function evaluate(brain, env, mode, inheritedQ = null) {
     const old = q.get(qKey) || 0;
     q.set(qKey, old + 0.18 * (r + 0.88 * future - old));
     reward += r;
+    if (options.recordTrace) trace.push(traceStep(step, state, ACTIONS[action], r, reward, event));
   }
 
   return {
@@ -341,10 +351,38 @@ function evaluate(brain, env, mode, inheritedQ = null) {
     bestX: state.bestX,
     used,
     q,
+    trace,
   };
 }
 
-function trainRoom(roomId, mode) {
+function traceStep(step, state, action, rewardDelta, rewardTotal, event) {
+  return {
+    step,
+    action,
+    x: state.x,
+    y: state.y,
+    bestX: state.bestX,
+    rewardDelta: Number(rewardDelta.toFixed(2)),
+    rewardTotal: Number(rewardTotal.toFixed(2)),
+    event,
+    spirit: state.spirit,
+    switches: state.switches,
+    kills: state.kills,
+    hasRed: state.hasRed,
+    hasGreen: state.hasGreen,
+    hasWhite: state.hasWhite,
+    hasBlack: state.hasBlack,
+    cooldowns: {
+      roll: state.rollCd,
+      red: state.redCd,
+      white: state.whiteCd,
+      black: state.blackCd,
+    },
+    eroded: [...state.eroded],
+  };
+}
+
+function trainRoom(roomId, mode, collectTrace = false) {
   const env = makeEnv(roomId);
   let population = Array.from({ length: POPULATION }, () => ({ brain: makeBrain(), q: new Map() }));
   let best = null;
@@ -375,6 +413,7 @@ function trainRoom(roomId, mode) {
   const exit = env.exits[0] || { x: COLS - 1, y: ROOM_FLOOR - 1 };
   const startHeight = env.start.y;
   const exitHeight = exit.y;
+  const replay = collectTrace ? evaluate(best.brain, env, mode, best.q, { recordTrace: true, epsilon: 0 }) : null;
   return {
     roomId,
     mode,
@@ -386,7 +425,32 @@ function trainRoom(roomId, mode) {
     startHeight,
     exitHeight,
     sameHeight: Math.abs(startHeight - exitHeight) <= 1,
+    grid: collectTrace ? env.grid.map((row) => row.join("")) : undefined,
+    start: collectTrace ? env.start : undefined,
+    exits: collectTrace ? env.exits : undefined,
+    trace: collectTrace ? replay.trace : undefined,
+    replayCleared: collectTrace ? replay.cleared : undefined,
+    replayReward: collectTrace ? replay.reward : undefined,
   };
+}
+
+const traceIndex = process.argv.indexOf("--trace");
+if (traceIndex >= 0) {
+  const roomId = Number(process.argv[traceIndex + 1] || 3);
+  const mode = process.argv[traceIndex + 2] || "helmet";
+  const result = trainRoom(roomId, mode, true);
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    actions: ACTIONS,
+    cols: COLS,
+    rows: ROWS,
+    maxEvaluations: MAX_EVALUATIONS,
+    result,
+  };
+  writeFileSync("tools/ai-trace.json", JSON.stringify(payload, null, 2));
+  console.log(`Wrote tools/ai-trace.json for room ${roomId} ${mode}.`);
+  console.log(`best progress=${result.progress.toFixed(2)} clearAt=${result.clearAt ?? "not-cleared"} replayCleared=${result.replayCleared}`);
+  process.exit(0);
 }
 
 const from = Number(process.argv[2] || 3);

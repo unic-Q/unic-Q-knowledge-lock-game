@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 回放查看器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Microsoft YaHei", system-ui, sans-serif;
+      background: #101722;
+      color: #e6edf3;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+    .meta {
+      color: #aebbd0;
+      font-size: 13px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(720px, 1fr) 320px;
+      gap: 16px;
+      align-items: start;
+    }
+    canvas {
+      width: 100%;
+      max-width: 960px;
+      aspect-ratio: 30 / 12;
+      background: #dfe8ed;
+      border: 1px solid #39475a;
+    }
+    .panel {
+      background: #182232;
+      border: 1px solid #334256;
+      padding: 12px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    button {
+      border: 1px solid #46566d;
+      background: #223047;
+      color: #e6edf3;
+      height: 34px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2b3b55;
+    }
+    input[type="range"] {
+      width: 100%;
+      margin: 10px 0 16px;
+    }
+    dl {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 8px 10px;
+      margin: 0;
+      font-size: 13px;
+    }
+    dt {
+      color: #9fb0c8;
+    }
+    dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .actions {
+      margin-top: 12px;
+      height: 260px;
+      overflow: auto;
+      border-top: 1px solid #334256;
+      padding-top: 10px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .active {
+      color: #f6c85f;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <h1>AI 回放查看器</h1>
+      <div class="meta" id="meta">Loading</div>
+    </div>
+    <div class="meta">重新生成：<code>node tools\ai-playtest.mjs --trace 3 helmet</code></div>
+  </div>
+  <div class="layout">
+    <canvas id="view" width="960" height="384"></canvas>
+    <aside class="panel">
+      <div class="controls">
+        <button id="play">Play</button>
+        <button id="prev">Prev</button>
+        <button id="next">Next</button>
+        <button id="restart">Start</button>
+      </div>
+      <input id="scrub" type="range" min="0" max="0" value="0">
+      <dl>
+        <dt>Room</dt><dd id="room">-</dd>
+        <dt>Mode</dt><dd id="mode">-</dd>
+        <dt>Step</dt><dd id="step">-</dd>
+        <dt>Action</dt><dd id="action">-</dd>
+        <dt>Position</dt><dd id="pos">-</dd>
+        <dt>Reward</dt><dd id="reward">-</dd>
+        <dt>Event</dt><dd id="event">-</dd>
+        <dt>Switch/Kill</dt><dd id="switches">-</dd>
+        <dt>Forms</dt><dd id="forms">-</dd>
+      </dl>
+      <div class="actions" id="actions"></div>
+    </aside>
+  </div>
+
+  <script type="module">
+    const tile = 32;
+    const canvas = document.querySelector("#view");
+    const ctx = canvas.getContext("2d");
+    const ui = Object.fromEntries(["meta", "room", "mode", "step", "action", "pos", "reward", "event", "switches", "forms", "actions"]
+      .map((id) => [id, document.querySelector(`#${id}`)]));
+    const scrub = document.querySelector("#scrub");
+    const buttons = {
+      play: document.querySelector("#play"),
+      prev: document.querySelector("#prev"),
+      next: document.querySelector("#next"),
+      restart: document.querySelector("#restart"),
+    };
+    let data = null;
+    let index = 0;
+    let timer = null;
+
+    const colors = {
+      "#": "#657789",
+      "=": "#93a3b7",
+      "!": "#a73440",
+      "~": "#66d8f5",
+      "P": "#eaf7dc",
+      "M": "#3a263d",
+      "K": "#f1ca57",
+      "D": "#4e5866",
+      "E": "#7f6b51",
+      "R": "#e84d4d",
+      "G": "#7fa083",
+      "W": "#f4f2e6",
+      "B": "#252632",
+    };
+
+    function draw() {
+      const result = data.result;
+      const trace = result.trace || [];
+      const step = trace[Math.min(index, trace.length - 1)] || null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#dfe8ed";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let y = 0; y < result.grid.length; y += 1) {
+        for (let x = 0; x < result.grid[y].length; x += 1) {
+          const cell = result.grid[y][x];
+          if (cell === ".") continue;
+          ctx.fillStyle = colors[cell] || "#6d7d90";
+          ctx.fillRect(x * tile, y * tile, tile, tile);
+          ctx.strokeStyle = "rgba(18,28,40,0.45)";
+          ctx.strokeRect(x * tile + 0.5, y * tile + 0.5, tile - 1, tile - 1);
+        }
+      }
+
+      ctx.strokeStyle = "rgba(232,77,77,0.55)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let i = 0; i <= index && i < trace.length; i += 1) {
+        const p = trace[i];
+        const x = p.x * tile + tile / 2;
+        const y = p.y * tile + tile / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      if (step) {
+        ctx.fillStyle = step.spirit ? "rgba(127,160,131,0.45)" : "#f4f2e6";
+        ctx.strokeStyle = "#16202e";
+        ctx.lineWidth = 2;
+        ctx.fillRect(step.x * tile + 5, step.y * tile + 4, 22, 24);
+        ctx.strokeRect(step.x * tile + 5, step.y * tile + 4, 22, 24);
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(step.x * tile + 10, step.y * tile + 12, 5, 5);
+        ctx.fillRect(step.x * tile + 19, step.y * tile + 12, 5, 5);
+      }
+
+      updatePanel(step);
+    }
+
+    function updatePanel(step) {
+      const result = data.result;
+      ui.meta.textContent = `Generated ${data.generatedAt}, ${result.trace.length} steps, best progress ${result.progress.toFixed(2)}`;
+      ui.room.textContent = result.roomId;
+      ui.mode.textContent = result.mode;
+      ui.step.textContent = step ? `${step.step} / ${result.trace.length - 1}` : "-";
+      ui.action.textContent = step?.action || "-";
+      ui.pos.textContent = step ? `${step.x}, ${step.y}` : "-";
+      ui.reward.textContent = step ? `${step.rewardDelta} / ${step.rewardTotal}` : "-";
+      ui.event.textContent = step?.event || "-";
+      ui.switches.textContent = step ? `${step.switches} / ${step.kills}` : "-";
+      ui.forms.textContent = step ? ["R", "G", "W", "B"].filter((label) => step[`has${{R:"Red",G:"Green",W:"White",B:"Black"}[label]}`]).join(" ") || "-" : "-";
+      ui.actions.innerHTML = result.trace.map((item, i) =>
+        `<div class="${i === index ? "active" : ""}">${String(i).padStart(3, "0")} ${item.action.padEnd(13)} (${item.x},${item.y}) ${item.event || ""}</div>`
+      ).join("");
+      const active = ui.actions.querySelector(".active");
+      if (active) active.scrollIntoView({ block: "nearest" });
+    }
+
+    function setIndex(value) {
+      index = Math.max(0, Math.min((data.result.trace?.length || 1) - 1, value));
+      scrub.value = index;
+      draw();
+    }
+
+    buttons.play.addEventListener("click", () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        buttons.play.textContent = "Play";
+        return;
+      }
+      buttons.play.textContent = "Pause";
+      timer = setInterval(() => {
+        if (index >= data.result.trace.length - 1) setIndex(0);
+        else setIndex(index + 1);
+      }, 90);
+    });
+    buttons.prev.addEventListener("click", () => setIndex(index - 1));
+    buttons.next.addEventListener("click", () => setIndex(index + 1));
+    buttons.restart.addEventListener("click", () => setIndex(0));
+    scrub.addEventListener("input", () => setIndex(Number(scrub.value)));
+
+    data = await fetch("tools/ai-trace.json?fresh=" + Date.now()).then((res) => res.json());
+    scrub.max = Math.max(0, data.result.trace.length - 1);
+    draw();
+  </script>
+</body>
+</html>
