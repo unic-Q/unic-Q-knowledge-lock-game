@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>四骑士知识锁 Demo</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260708-canvas-fit">
 </head>
 <body>
   <main class="shell">
@@ -18,13 +18,13 @@
         <span id="hintLabel">长按 Space 选骑士</span>
       </div>
     </section>
-    <canvas id="game" width="960" height="540"></canvas>
+    <canvas id="game" width="640" height="640"></canvas>
     <section class="footer">
       <span>无头盔：← → 移动，↑ 跳跃，↓ 下落平台</span>
       <span>第2关头盔可拾取也可跳过；小旗子是存档点，R 回到最近旗子</span>
     </section>
     <pre id="debugPanel" class="debug-panel"></pre>
   </main>
-  <script type="module" src="src/main.js?v=20260707-rooms-ai"></script>
+  <script type="module" src="src/main.js?v=20260708-surface-save-state"></script>
 </body>
 </html>

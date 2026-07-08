@@ -1,20 +1,25 @@
 "use strict";
 
 export const TILE = 32;
-export const WIDTH = 960;
-export const HEIGHT = 540;
+export const COLS = 20;
+export const ROWS = 20;
+export const WIDTH = TILE * COLS;
+export const HEIGHT = TILE * ROWS;
 export const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
-export const COLS = 30;
-export const ROWS = 12;
-export const ROOM_FLOOR = 10;
-export const EXIT_TOP_X = 5;
-export const EXIT_BOTTOM_X = 5;
+export const ROOM_FLOOR = 18;
+export const EXIT_TOP_X = 8;
+export const EXIT_BOTTOM_X = 8;
 export const FLAG_W = 14;
 export const FLAG_H = 28;
 
-export const GRAVITY = 1900;
-export const MOVE = 250;
-export const JUMP = 650;
+export const GRAVITY = TILE * 50;
+export const MOVE = TILE * 7;
+export const JUMP = Math.sqrt(2 * GRAVITY * TILE * 3.5);
+export const GREEN_MOVE = 225;
+export const GREEN_JUMP = 585;
+export const GREEN_GRAVITY = 1900;
+export const BLACK_JUMP = 533;
+export const BLACK_GRAVITY = 1900;
 
 export const ROLL_SPEED = 520;
 export const ROLL_UP = 120;
@@ -28,9 +33,11 @@ export const RED_QTE_TIME = 0.28;
 export const RED_QTE_READY = 0.45;
 export const RED_KILL_QTE_BONUS = 0.18;
 
-export const WHITE_SURFACE_SPEED = 185;
+export const WHITE_SURFACE_SPEED = TILE * 5;
+export const WHITE_PLAGUE_SPEED = TILE * 8;
 export const WHITE_SNAP = 24;
 export const WHITE_HOOK_RANGE = TILE * 6;
+export const WHITE_HOOK_EXTEND = TILE * 20;
 export const WHITE_HOOK_PULL = 520;
 export const WHITE_HOOK_HOLD = 0.5;
 export const WHITE_HOOK_AIM_BIAS = 0.45;

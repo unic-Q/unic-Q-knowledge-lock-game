@@ -467,20 +467,29 @@ export function parseRoom(data) {
   const hazards = [];
   const enemies = [];
   const switches = [];
+  const leverSwitches = [];
   const gates = [];
+  const checkpoints = [];
   const abilityPickups = [];
   data.blocks.forEach((row, y) => {
     [...row].forEach((cell, x) => {
       const b = { x: x * TILE, y: y * TILE, w: TILE, h: TILE, hp: 1, maxHp: 1, sink: 0, broken: false };
-      if (cell === "#") blocks.push({ ...b, hp: 3, maxHp: 3 });
-      if (cell === "=") platforms.push(b);
-      if (cell === "X") cracks.push({ ...b, hp: 0.45, maxHp: 0.45 });
+      if (cell === "#" || cell === "X" || cell === "E") blocks.push({ ...b, hp: 3, maxHp: 3 });
+      if (cell === "=") platforms.push({ x: b.x, y: b.y, w: TILE, h: TILE / 2, face: "up" });
+      if (cell === "-") platforms.push({ x: b.x, y: b.y + TILE / 2, w: TILE, h: TILE / 2, face: "up" });
+      if (cell === "U") platforms.push({ x: b.x, y: b.y + TILE / 2, w: TILE, h: TILE / 2, face: "down" });
+      if (cell === "L") platforms.push({ x: b.x, y: b.y, w: TILE / 2, h: TILE, face: "left" });
+      if (cell === "J") platforms.push({ x: b.x + TILE / 2, y: b.y, w: TILE / 2, h: TILE, face: "right" });
       if (cell === "H") hidden.push(b);
-      if (cell === "E") erode.push({ ...b, hp: 0.75, maxHp: 0.75 });
       if (cell === "!") hazards.push({ ...b, type: "spike" });
       if (cell === "~") hazards.push({ ...b, type: "electric" });
       if (cell === "M") enemies.push({ x: b.x + 4, y: b.y + 7, w: TILE - 8, h: TILE - 7, alive: true });
       if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false, latched: false });
+      if ("<>^vS".includes(cell)) {
+        const initialSide = { "<": "left", ">": "right", "^": "up", "v": "down", S: "right" }[cell];
+        leverSwitches.push({ x: b.x + 4, y: b.y + 4, w: TILE - 8, h: TILE - 8, pressed: false, lastSide: null, initialSide });
+      }
+      if (cell === "F") checkpoints.push({ x: b.x + 6, y: b.y + 2, w: 22, h: 30, active: false });
       if (cell === "D") gates.push({ ...b, open: false });
       if ("GRWB".includes(cell)) abilityPickups.push({ x: b.x + 4, y: b.y + 4, w: 24, h: 24, form: { G: "green", R: "red", W: "white", B: "black" }[cell], taken: false });
       if (cell === "A") anchors.push({ x: b.x + TILE / 2, y: b.y + TILE / 2 });
@@ -500,5 +509,27 @@ export function parseRoom(data) {
       }
     });
   });
-  return { ...data, blocks, platforms, cracks, hidden, anchors, erode, plagueHazards, hazards, enemies, switches, gates, abilityPickups };
+  for (const surface of data.surfacePlagues || []) {
+    const segment = plagueSegmentFromSurface(surface);
+    if (segment) plagueHazards.push(segment);
+  }
+  return { ...data, blocks, platforms, cracks, hidden, anchors, erode, plagueHazards, hazards, enemies, switches, leverSwitches, gates, checkpoints, abilityPickups };
+}
+
+function plagueSegmentFromSurface(surface) {
+  if (!Number.isInteger(surface.x) || !Number.isInteger(surface.y) || !Number.isInteger(surface.face)) return null;
+  const x = surface.x * TILE;
+  const y = surface.y * TILE;
+  const inset = 3;
+  const face = ((surface.face % 4) + 4) % 4;
+  if (face === 0) {
+    return { a: x + inset, b: x + TILE - inset, n: -y, nx: 0, ny: -1, tx: 1, ty: 0, thick: 10, seed: x + y + face };
+  }
+  if (face === 1) {
+    return { a: y + inset, b: y + TILE - inset, n: x + TILE, nx: 1, ny: 0, tx: 0, ty: 1, thick: 10, seed: x + y + face };
+  }
+  if (face === 2) {
+    return { a: x + inset, b: x + TILE - inset, n: y + TILE, nx: 0, ny: 1, tx: 1, ty: 0, thick: 10, seed: x + y + face };
+  }
+  return { a: y + inset, b: y + TILE - inset, n: -x, nx: -1, ny: 0, tx: 0, ty: 1, thick: 10, seed: x + y + face };
 }

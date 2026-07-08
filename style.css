@@ -24,11 +24,11 @@ body {
 body {
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: 10px;
 }
 
 .shell {
-  width: min(100%, 1040px);
+  width: min(100%, 640px);
 }
 
 .hud,
@@ -40,7 +40,7 @@ body {
 }
 
 .hud {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 h1,
@@ -73,12 +73,14 @@ h1 {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 6px 8px;
 }
 
 canvas {
   display: block;
-  width: 100%;
+  width: min(100%, 640px);
+  height: auto;
+  margin: 0 auto;
   background: #1b2633;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -86,6 +88,7 @@ canvas {
 }
 
 .debug-panel {
+  display: none;
   position: fixed;
   left: 12px;
   top: 12px;
@@ -103,7 +106,7 @@ canvas {
 }
 
 .footer {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 @media (max-width: 760px) {

@@ -51,7 +51,7 @@ export function isGroundedNow(state) {
   if (activeBlocks(state).some((b) => rectsOverlap(foot, b))) return true;
   if (player.dropTimer <= 0) {
     for (const p of room.platforms) {
-      if (rectsOverlap(foot, transformedRect(state, p))) return true;
+      if ((p.face || "up") === "up" && rectsOverlap(foot, transformedRect(state, p))) return true;
     }
   }
   return false;
@@ -78,15 +78,35 @@ export function moveAxis(state, axis, dt) {
       player.vy = 0;
     }
   }
-  if (axis === "y" && amount >= 0 && player.dropTimer <= 0 && state.form !== "black") {
+  if (axis === "y" && player.dropTimer <= 0 && state.form !== "black") {
     for (const p of room.platforms) {
       const b = transformedRect(state, p);
+      const face = p.face || "up";
       const wasAbove = player.y + player.h - amount <= b.y + 2;
-      if (wasAbove && rectsOverlap(player, b)) {
+      const wasBelow = player.y - amount >= b.y + b.h - 2;
+      if (amount >= 0 && face === "up" && wasAbove && rectsOverlap(player, b)) {
         player.y = b.y - player.h;
         player.vy = 0;
         player.onGround = true;
         player.jumps = 0;
+      } else if (amount < 0 && face === "down" && wasBelow && rectsOverlap(player, b)) {
+        player.y = b.y + b.h;
+        player.vy = 0;
+      }
+    }
+  }
+  if (axis === "x" && state.form !== "black") {
+    for (const p of room.platforms) {
+      const b = transformedRect(state, p);
+      const face = p.face || "up";
+      const wasLeft = player.x + player.w - amount <= b.x + 2;
+      const wasRight = player.x - amount >= b.x + b.w - 2;
+      if (amount > 0 && face === "left" && wasLeft && rectsOverlap(player, b)) {
+        player.x = b.x - player.w;
+        player.vx = 0;
+      } else if (amount < 0 && face === "right" && wasRight && rectsOverlap(player, b)) {
+        player.x = b.x + b.w;
+        player.vx = 0;
       }
     }
   }

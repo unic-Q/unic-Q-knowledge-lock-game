@@ -2,8 +2,9 @@
 
 import {
   GRAVITY, MOVE, JUMP, RED_DASH_DISTANCE, RED_DASH_TIME, RED_QTE_TIME, RED_QTE_READY,
-  RED_KILL_QTE_BONUS, ROLL_SPEED, ROLL_UP, ROLL_TIME,
-  WHITE_SURFACE_SPEED, WHITE_HOOK_RANGE, WHITE_HOOK_PULL, WHITE_HOOK_HOLD,
+  RED_KILL_QTE_BONUS, ROLL_SPEED, ROLL_UP, ROLL_TIME, GREEN_MOVE, GREEN_JUMP,
+  GREEN_GRAVITY, BLACK_JUMP, BLACK_GRAVITY,
+  WHITE_SURFACE_SPEED, WHITE_PLAGUE_SPEED, WHITE_HOOK_RANGE, WHITE_HOOK_EXTEND, WHITE_HOOK_PULL, WHITE_HOOK_HOLD,
   WHITE_SNAP, ERODE_RATE, ERODE_FAST,
 } from "./constants.js";
 import {
@@ -61,8 +62,9 @@ export function updateWhite(state, input, dt) {
     const dir = input.right ? 1 : input.left ? -1 : 0;
     const tx = -surface.ny;
     const ty = surface.nx;
-    player.x += tx * WHITE_SURFACE_SPEED * dir * dt;
-    player.y += ty * WHITE_SURFACE_SPEED * dir * dt;
+    const speed = isWhiteSurfacePlagued(state, previousBody, surface) ? WHITE_PLAGUE_SPEED : WHITE_SURFACE_SPEED;
+    player.x += tx * speed * dir * dt;
+    player.y += ty * speed * dir * dt;
     const overlapSurface = resolveWhiteOverlap(state);
     const nearbySurface = findWhiteSurface(state);
     const nextSurface = overlapSurface || sameNormalSurface(nearbySurface, surface) || exteriorCornerSurface(player, surface, dir) || nearbySurface;
@@ -250,6 +252,22 @@ function trimPlague(player) {
   }
 }
 
+function isWhiteSurfacePlagued(state, playerBody, surface) {
+  const contact = contactInterval(playerBody, surface);
+  if (!contact) return false;
+  const n = surface.nx * contact.x + surface.ny * contact.y;
+  const a = Math.min(contact.a, contact.b);
+  const b = Math.max(contact.a, contact.b);
+  return [...state.player.plague, ...(state.room.plagueHazards || [])].some((p) => {
+    if (!Number.isFinite(p.a) || !Number.isFinite(p.b)) return false;
+    if (p.nx !== surface.nx || p.ny !== surface.ny) return false;
+    if (Math.abs(p.n - n) > WHITE_SNAP) return false;
+    const pa = Math.min(p.a, p.b);
+    const pb = Math.max(p.a, p.b);
+    return !(b < pa || a > pb);
+  });
+}
+
 function contactInterval(player, surface) {
   const b = surface.block;
   if (surface.nx === 0) {
@@ -271,6 +289,13 @@ function updateWhiteHookPull(state, upHeld, dt) {
   const { player } = state;
   if (!player.hook || player.hookTime <= 0) return false;
   player.hookTime -= dt;
+  if (player.hook.extending) {
+    player.hook.progress = Math.min(player.hook.length, player.hook.progress + WHITE_HOOK_EXTEND * dt);
+    player.hook.x = player.hook.sx + player.hook.dx * player.hook.progress;
+    player.hook.y = player.hook.sy + player.hook.dy * player.hook.progress;
+    if (player.hook.progress < player.hook.length) return true;
+    player.hook.extending = false;
+  }
   if (!player.hook.hit) return false;
 
   if (!upHeld) {
@@ -339,8 +364,29 @@ function shootWhiteHook(state, aimBias) {
     x += dx * 8;
     y += dy * 8;
   }
-  player.hook = { sx, sy, x: end.x, y: end.y, hit: end.hit, surface: end.surface, nx: -dx, ny: -dy, hold: 0, pulling: false, vx: 0, vy: 0 };
-  player.hookTime = end.hit ? 2.0 : 0.22;
+  const hookLength = Math.hypot(end.x - sx, end.y - sy);
+  player.hook = {
+    sx,
+    sy,
+    x: sx,
+    y: sy,
+    targetX: end.x,
+    targetY: end.y,
+    dx,
+    dy,
+    length: hookLength,
+    progress: 0,
+    extending: true,
+    hit: end.hit,
+    surface: end.surface,
+    nx: -dx,
+    ny: -dy,
+    hold: 0,
+    pulling: false,
+    vx: 0,
+    vy: 0,
+  };
+  player.hookTime = end.hit ? 2.0 : hookLength / WHITE_HOOK_EXTEND + 0.08;
 }
 
 function hookHitSurface(block, x, y) {
@@ -458,10 +504,10 @@ function breakCracks(state, radius) {
 export function updateGreen(state, input, dt) {
   const { player } = state;
   if (input.left) {
-    player.vx = -MOVE * 0.9;
+    player.vx = -GREEN_MOVE;
     player.facing = -1;
   } else if (input.right) {
-    player.vx = MOVE * 0.9;
+    player.vx = GREEN_MOVE;
     player.facing = 1;
   } else {
     player.vx *= 0.82;
@@ -478,7 +524,7 @@ export function updateGreen(state, input, dt) {
       player.coyote = 0.1;
       player.greenAfterimage = false;
     } else if (player.coyote > 0 || isGroundedNow(state)) {
-      player.vy = -JUMP * 0.9;
+      player.vy = -GREEN_JUMP;
       player.onGround = false;
       player.coyote = 0;
     }
@@ -491,7 +537,7 @@ export function updateGreen(state, input, dt) {
   if (player.greenAfterimage) {
     player.vy = 0;
   } else {
-    player.vy += GRAVITY * dt;
+    player.vy += GREEN_GRAVITY * dt;
   }
 }
 
@@ -501,12 +547,12 @@ export function updateBlack(state, input, dt) {
   if (input.leftShot) rotateBlackWorld(state, 3);
   if (input.rightShot) rotateBlackWorld(state, 1);
   if (input.up && (player.coyote > 0 || isGroundedNow(state))) {
-    player.vy = -JUMP * 0.82;
+    player.vy = -BLACK_JUMP;
     player.onGround = false;
     player.coyote = 0;
   }
   player.vx *= 0.6;
-  if (!didRotate) player.vy += GRAVITY * dt;
+  if (!didRotate) player.vy += BLACK_GRAVITY * dt;
   erodeBelow(state, dt * (input.downHeld ? ERODE_FAST : ERODE_RATE));
 }
 

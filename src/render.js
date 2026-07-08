@@ -1,6 +1,10 @@
 "use strict";
 
-import { COLS, FORMS, RED_QTE_READY, RED_QTE_TIME, ROWS } from "./constants.js";
+import {
+  BLACK_GRAVITY, BLACK_JUMP, COLS, FORMS, GRAVITY, GREEN_GRAVITY, GREEN_JUMP, GREEN_MOVE,
+  JUMP, MOVE, RED_DASH_DISTANCE, RED_QTE_READY, RED_QTE_TIME, ROWS, TILE,
+  WHITE_HOOK_RANGE, WHITE_PLAGUE_SPEED, WHITE_SURFACE_SPEED,
+} from "./constants.js";
 import { transformedRect, isGreenAfterimage } from "./physics.js";
 
 function drawRect(ctx, r, fill, stroke) {
@@ -91,6 +95,55 @@ function drawSwitch(ctx, s) {
   ctx.fillRect(s.x, s.y, s.w, s.h);
   ctx.strokeStyle = "#314252";
   ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+}
+
+function drawLeverSwitch(ctx, s) {
+  ctx.fillStyle = s.pressed ? "#74c476" : "#d89b63";
+  ctx.fillRect(s.x + 3, s.y + s.h - 7, s.w - 6, 6);
+  ctx.strokeStyle = "#314252";
+  ctx.strokeRect(s.x + 3.5, s.y + s.h - 6.5, s.w - 7, 5);
+  const dir = leverVector(s.initialSide || "right");
+  const baseX = s.x + s.w / 2;
+  const baseY = s.y + s.h / 2;
+  ctx.strokeStyle = "#f4c95d";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(baseX, baseY);
+  ctx.lineTo(baseX + dir.x * 10, baseY + dir.y * 10);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+}
+
+function leverVector(side) {
+  return {
+    left: { x: -1, y: 0 },
+    right: { x: 1, y: 0 },
+    up: { x: 0, y: -1 },
+    down: { x: 0, y: 1 },
+  }[side] || { x: 1, y: 0 };
+}
+
+function drawCheckpoint(ctx, f) {
+  ctx.strokeStyle = "#f0dca2";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(f.x + 3, f.y + f.h);
+  ctx.lineTo(f.x + 3, f.y + 2);
+  ctx.stroke();
+  ctx.fillStyle = f.active ? "#74c476" : "#f4c95d";
+  ctx.beginPath();
+  ctx.moveTo(f.x + 5, f.y + 4);
+  ctx.lineTo(f.x + 22, f.y + 9);
+  ctx.lineTo(f.x + 5, f.y + 15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = 1;
+}
+
+function drawPlatform(ctx, p) {
+  const fill = "#758698";
+  const stroke = "#40505f";
+  drawRect(ctx, p, fill, stroke);
 }
 
 function drawGate(ctx, g) {
@@ -185,6 +238,80 @@ function drawPlagueSegment(ctx, segment, alpha = 1) {
   }
 }
 
+function drawReachableOverlay(ctx, state) {
+  const cells = reachableCells(state);
+  ctx.save();
+  ctx.fillStyle = "rgba(244, 201, 93, 0.18)";
+  ctx.strokeStyle = "rgba(244, 201, 93, 0.26)";
+  for (const cell of cells) {
+    ctx.fillRect(cell.x * TILE + 1, cell.y * TILE + 1, TILE - 2, TILE - 2);
+    ctx.strokeRect(cell.x * TILE + 0.5, cell.y * TILE + 0.5, TILE - 1, TILE - 1);
+  }
+  ctx.restore();
+}
+
+function reachableCells(state) {
+  const { player } = state;
+  const cells = [];
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  for (let y = 0; y < ROWS; y += 1) {
+    for (let x = 0; x < COLS; x += 1) {
+      const tx = x * TILE + TILE / 2;
+      const ty = y * TILE + TILE / 2;
+      if (isCellBlocked(state, x, y)) continue;
+      if (isReachablePoint(state, cx, cy, tx, ty)) cells.push({ x, y });
+    }
+  }
+  return cells;
+}
+
+function isCellBlocked(state, gx, gy) {
+  const probe = { x: gx * TILE + 4, y: gy * TILE + 4, w: TILE - 8, h: TILE - 8 };
+  const solid = [...state.room.blocks, ...(state.room.gates || []).filter((g) => !g.open)];
+  return solid.some((b) => !b.broken && rectsOverlap(probe, transformedRect(state, b)));
+}
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function isReachablePoint(state, sx, sy, tx, ty) {
+  const dx = Math.abs(tx - sx);
+  const dy = ty - sy;
+  if (state.form === "red") return dx + Math.abs(dy) <= RED_DASH_DISTANCE + TILE * 0.75;
+  if (state.form === "white") {
+    const surfaceSpeed = playerOnPlague(state) ? WHITE_PLAGUE_SPEED : WHITE_SURFACE_SPEED;
+    return Math.hypot(dx, dy) <= WHITE_HOOK_RANGE + TILE * 0.5 || dx + Math.abs(dy) <= surfaceSpeed * 1.15;
+  }
+  if (state.form === "green" && isGreenAfterimage(state)) return Math.hypot(dx, dy) <= GREEN_MOVE * 1.25;
+  if (state.form === "green") return projectileReach(dx, dy, GREEN_MOVE, GREEN_JUMP, GREEN_GRAVITY);
+  if (state.form === "black") return projectileReach(dx, dy, MOVE * 0.25, BLACK_JUMP, BLACK_GRAVITY);
+  return projectileReach(dx, dy, MOVE, JUMP, GRAVITY, true);
+}
+
+function projectileReach(dx, dy, speed, jump, gravity, doubleJump = false) {
+  const maxHeight = (jump * jump) / (2 * gravity);
+  const effectiveJump = doubleJump ? jump * 1.32 : jump;
+  if (dy < -maxHeight * (doubleJump ? 1.8 : 1) - TILE * 0.5) return false;
+  const disc = effectiveJump * effectiveJump + 2 * gravity * dy;
+  if (disc < 0) return false;
+  const t = (effectiveJump + Math.sqrt(disc)) / gravity;
+  return dx <= speed * t + TILE * 0.75;
+}
+
+function playerOnPlague(state) {
+  const px = state.player.x + state.player.w / 2;
+  const py = state.player.y + state.player.h / 2;
+  return state.player.plague.some((p) => {
+    if (!Number.isFinite(p.a) || !Number.isFinite(p.b)) return false;
+    const t = px * p.tx + py * p.ty;
+    const n = px * p.nx + py * p.ny;
+    const clamped = Math.max(Math.min(p.a, p.b), Math.min(Math.max(p.a, p.b), t));
+    return Math.hypot(t - clamped, n - p.n) < 22;
+  });
+}
+
 export function draw(ctx, state) {
   const { room, player } = state;
   ctx.save();
@@ -198,7 +325,7 @@ export function draw(ctx, state) {
     drawRect(ctx, r, "#607487", "#314252");
     drawCracks(ctx, r, b.crackLevel || 0);
   }
-  for (const b of room.platforms) drawRect(ctx, transformedRect(state, b), "#758698", "#40505f");
+  for (const b of room.platforms) drawPlatform(ctx, transformedRect(state, b));
   for (const b of room.cracks) if (!b.broken) drawRect(ctx, transformedRect(state, b), "#774849", "#c87c7d");
   for (const b of room.erode) if (!b.broken) {
     const r = transformedRect(state, b);
@@ -213,6 +340,8 @@ export function draw(ctx, state) {
   for (const g of room.gates || []) drawGate(ctx, transformedRect(state, g));
   for (const h of room.hazards || []) drawHazard(ctx, transformedRect(state, h));
   for (const s of room.switches || []) drawSwitch(ctx, s);
+  for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, s);
+  for (const f of room.checkpoints || []) drawCheckpoint(ctx, f);
   for (const e of room.enemies || []) drawEnemy(ctx, e);
   for (const a of room.anchors) {
     ctx.fillStyle = "#f4f2e6";
@@ -226,6 +355,7 @@ export function draw(ctx, state) {
   for (const p of player.plague) {
     drawPlagueStain(ctx, p, 0.82);
   }
+  if (state.reachOverlay) drawReachableOverlay(ctx, state);
   for (let i = 1; i < player.graves.length; i += 1) {
     ctx.strokeStyle = state.form === "green" ? "#9fd2ad" : "#53605a";
     ctx.lineWidth = 2;

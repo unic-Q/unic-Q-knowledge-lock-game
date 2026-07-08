@@ -21,6 +21,7 @@ let prevKeys = new Set();
 let lastTime = 0;
 let debugSendTimer = 0;
 let audioCtx = null;
+const urlParams = new URLSearchParams(window.location.search);
 
 const state = {
   worldRooms,
@@ -39,9 +40,11 @@ const state = {
   worldRot: 0,
   shake: 0,
   raisedFlags: new Set(),
-  checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, worldRot: 0 },
+  checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, unlockedForms: [], worldRot: 0 },
   lastRespawn: "none",
   eventLog: [],
+  overallPlaytest: false,
+  roomIndexById: new Map(worldRooms.map((room, index) => [room.id, index])),
 };
 
 function logEvent(type, data = {}) {
@@ -81,7 +84,7 @@ function loadRoom(index, spawn) {
   const start = spawn || state.room.spawn;
   state.player = makePlayer(start[0], start[1]);
   if (!spawn && state.roomIndex === 0) {
-    state.checkpoint = { roomIndex: state.roomIndex, x: start[0], y: start[1], form: "none", helmetOwned: state.helmetOwned, worldRot: 0 };
+    state.checkpoint = { roomIndex: state.roomIndex, x: start[0], y: start[1], form: "none", helmetOwned: state.helmetOwned, unlockedForms: [...state.unlockedForms], worldRot: 0 };
   }
   state.selectedForm = state.form === "none" ? "red" : state.form;
   state.worldRot = state.checkpoint.worldRot ?? 0;
@@ -90,13 +93,66 @@ function loadRoom(index, spawn) {
   updateHud();
 }
 
+function roomIndexForId(id) {
+  const numericId = Number(id);
+  return state.roomIndexById.get(numericId) ?? Math.max(0, Math.min(numericId - 1, state.worldRooms.length - 1));
+}
+
+function normalizePlaytestBlocks(blocks) {
+  const source = Array.isArray(blocks) ? blocks : [];
+  return Array.from({ length: ROWS }, (_, y) => {
+    const row = Array.isArray(source[y]) ? source[y].join("") : String(source[y] || "");
+    return row.padEnd(COLS, ".").slice(0, COLS);
+  });
+}
+
+function normalizePlaytestSpawn(spawn) {
+  if (Array.isArray(spawn)) {
+    return [
+      Number.isFinite(Number(spawn[0])) ? Number(spawn[0]) : 70,
+      Number.isFinite(Number(spawn[1])) ? Number(spawn[1]) : ROOM_FLOOR * TILE - 28,
+    ];
+  }
+  if (spawn && typeof spawn === "object") {
+    return [
+      Number.isFinite(Number(spawn.x)) ? Number(spawn.x) : 70,
+      Number.isFinite(Number(spawn.y)) ? Number(spawn.y) : ROOM_FLOOR * TILE - 28,
+    ];
+  }
+  return [70, ROOM_FLOOR * TILE - 28];
+}
+
+function normalizePlaytestSurfacePlagues(surfacePlagues) {
+  return Array.isArray(surfacePlagues) ? surfacePlagues.filter((item) =>
+    Number.isInteger(item?.x) && Number.isInteger(item?.y) && Number.isInteger(item?.face)
+  ) : [];
+}
+
+function normalizePlaytestRoom(room, fallbackId = 1) {
+  const id = Number.isFinite(Number(room?.id ?? room?.room)) ? Number(room.id ?? room.room) : fallbackId;
+  return {
+    id,
+    name: room?.name || `试玩房间 ${String(id).padStart(2, "0")}`,
+    spawn: room?.spawn === null ? null : normalizePlaytestSpawn(room?.spawn),
+    worldStart: Boolean(room?.worldStart),
+    flag: null,
+    helmet: null,
+    links: room?.links && typeof room.links === "object" ? room.links : {},
+    blocks: normalizePlaytestBlocks(room?.blocks),
+    surfacePlagues: normalizePlaytestSurfacePlagues(room?.surfacePlagues),
+  };
+}
+
 function respawn(reason = "unknown") {
   logEvent("respawn", { reason });
   state.lastRespawn = reason;
   state.roomIndex = state.checkpoint.roomIndex;
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
   state.helmetOwned = state.checkpoint.helmetOwned;
+  state.unlockedForms = new Set(state.checkpoint.unlockedForms || []);
   state.form = state.checkpoint.form;
+  if (state.form !== "none" && !state.unlockedForms.has(state.form)) state.form = state.unlockedForms.values().next().value || "none";
+  state.selectedForm = state.form === "none" ? "red" : state.form;
   state.player = makePlayer(state.checkpoint.x, state.checkpoint.y);
   state.worldRot = 0;
   state.helmetHeld = 0;
@@ -109,6 +165,102 @@ function updateHud() {
   formLabel.textContent = FORMS[state.form].name;
   formLabel.style.color = FORMS[state.form].color;
   hintLabel.textContent = state.helmetOwned ? "长按 Space 选骑士" : "第2关可拾取头盔，也可以不拿";
+}
+
+function applyLoadout(loadout) {
+  const unlocks = {
+    none: [],
+    red: ["red"],
+    "red-green": ["red", "green"],
+    "red-green-white": ["red", "green", "white"],
+    all: ["red", "green", "white", "black"],
+  }[loadout] || [];
+  state.helmetOwned = unlocks.length > 0;
+  state.unlockedForms = new Set(unlocks);
+  state.form = unlocks[0] || "none";
+  state.selectedForm = unlocks[0] || "red";
+  return unlocks;
+}
+
+function setupEditorPlaytest() {
+  if (!urlParams.has("editorTest")) return false;
+  const raw = localStorage.getItem("editorPlaytestRoom");
+  if (!raw) return false;
+  let room;
+  try {
+    room = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  const unlocks = applyLoadout(room.playtestLoadout || "none");
+  state.worldRooms = [normalizePlaytestRoom({ ...room, id: 1, name: room.name || "编辑器试玩", links: {} }, 1)];
+  state.roomIndexById = new Map(state.worldRooms.map((item, index) => [item.id, index]));
+  state.roomIndex = 0;
+  state.checkpoint = {
+    roomIndex: 0,
+    x: state.worldRooms[0].spawn[0],
+    y: state.worldRooms[0].spawn[1],
+    form: state.form,
+    helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
+    worldRot: 0,
+  };
+  loadRoom(0);
+  state.checkpoint = {
+    roomIndex: 0,
+    x: state.worldRooms[0].spawn[0],
+    y: state.worldRooms[0].spawn[1],
+    form: state.form,
+    helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
+    worldRot: 0,
+  };
+  hintLabel.textContent = "编辑器试玩：R 重置，长按 Space 选已解锁骑士";
+  return true;
+}
+
+function setupEditorWorldPlaytest() {
+  if (!urlParams.has("worldTest")) return false;
+  const raw = localStorage.getItem("editorWorldPlaytest");
+  if (!raw) return false;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(data.rooms) || !data.rooms.length) return false;
+  const unlocks = applyLoadout(data.loadout || "none");
+  state.overallPlaytest = true;
+  state.worldRooms = data.rooms.map((room, index) => normalizePlaytestRoom({
+    ...room,
+    name: room.name || `总体试玩 ${String(room.id ?? index + 1).padStart(2, "0")}`,
+  }, index + 1));
+  state.roomIndexById = new Map(state.worldRooms.map((item, index) => [item.id, index]));
+  const startIndex = roomIndexForId(Number(data.startRoom) || state.worldRooms[0].id);
+  const startRoom = state.worldRooms[startIndex] || state.worldRooms[0];
+  const startSpawn = normalizePlaytestSpawn(startRoom.spawn);
+  state.checkpoint = {
+    roomIndex: startIndex,
+    x: startSpawn[0],
+    y: startSpawn[1],
+    form: state.form,
+    helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
+    worldRot: 0,
+  };
+  loadRoom(startIndex, startSpawn);
+  state.checkpoint = {
+    roomIndex: startIndex,
+    x: startSpawn[0],
+    y: startSpawn[1],
+    form: state.form,
+    helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
+    worldRot: 0,
+  };
+  hintLabel.textContent = unlocks.length ? "总体试玩：相邻关卡无缝切换，长按 Space 选骑士" : "总体试玩：相邻关卡无缝切换";
+  return true;
 }
 
 function switchForm(next) {
@@ -161,6 +313,7 @@ function activateCheckpoint() {
     y: flagRect.y + flagRect.h - player.h,
     form: state.form,
     helmetOwned: state.helmetOwned,
+    unlockedForms: [...state.unlockedForms],
     worldRot: state.worldRot,
   };
 }
@@ -170,18 +323,62 @@ function changeRoom(dir) {
   if (!targetId) return false;
   const { player } = state;
   const fromId = state.room.id;
+  if (state.overallPlaytest) {
+    return seamlessChangeRoom(dir, targetId, fromId);
+  }
   let spawn = [player.x, player.y];
   if (dir === "r") spawn = safeSideSpawn(targetId, "l", 6, player.y);
   if (dir === "l") spawn = safeSideSpawn(targetId, "r", WIDTH - player.w - 6, player.y);
   if (dir === "u") spawn = [(EXIT_BOTTOM_X + 1) * TILE + 4, ROOM_FLOOR * TILE - player.h - 2];
   if (dir === "d") spawn = [(EXIT_TOP_X + 1) * TILE + 4, 6];
-  loadRoom(targetId - 1, spawn);
+  loadRoom(roomIndexForId(targetId), spawn);
   logEvent("changeRoom", { dir, from: fromId, to: targetId, spawnX: Number(spawn[0].toFixed(2)), spawnY: Number(spawn[1].toFixed(2)) });
   return true;
 }
 
+function seamlessChangeRoom(dir, targetId, fromId) {
+  const old = state.player;
+  const targetIndex = roomIndexForId(targetId);
+  let spawn = [old.x, old.y];
+  if (dir === "r") spawn = [2, old.y];
+  if (dir === "l") spawn = [WIDTH - old.w - 2, old.y];
+  if (dir === "u") spawn = [old.x, HEIGHT - old.h - 2];
+  if (dir === "d") spawn = [old.x, 2];
+  spawn[0] = Math.max(0, Math.min(WIDTH - old.w, spawn[0]));
+  spawn[1] = Math.max(0, Math.min(HEIGHT - old.h, spawn[1]));
+
+  const preserved = {
+    vx: old.vx,
+    vy: old.vy,
+    facing: old.facing,
+    jumps: old.jumps,
+    coyote: old.coyote,
+    dropTimer: old.dropTimer,
+    rollTimer: old.rollTimer,
+    rollCooldown: old.rollCooldown,
+    redQte: old.redQte,
+    redDash: old.redDash,
+    redQteBonus: old.redQteBonus,
+    redMisses: old.redMisses,
+    stun: old.stun,
+    graves: old.graves,
+    greenAfterimage: old.greenAfterimage,
+    plague: old.plague,
+    plagueGrace: old.plagueGrace,
+  };
+  loadRoom(targetIndex, spawn);
+  Object.assign(state.player, preserved);
+  state.player.x = spawn[0];
+  state.player.y = spawn[1];
+  state.player.whiteSurface = null;
+  state.player.hook = null;
+  state.player.hookTime = 0;
+  logEvent("changeRoom", { dir, from: fromId, to: targetId, seamless: true, spawnX: Number(spawn[0].toFixed(2)), spawnY: Number(spawn[1].toFixed(2)) });
+  return true;
+}
+
 function safeSideSpawn(targetId, side, x, fallbackY) {
-  const roomDef = state.worldRooms[targetId - 1];
+  const roomDef = state.worldRooms[roomIndexForId(targetId)];
   const col = side === "l" ? 0 : COLS - 1;
   const rows = [];
   for (let row = 1; row < ROWS - 1; row += 1) {
@@ -264,6 +461,7 @@ function update(dt) {
 
   handlePickups();
   handleSwitches();
+  handleCheckpoints();
   handleEnemies();
   activateCheckpoint();
   handleHazards();
@@ -272,7 +470,11 @@ function update(dt) {
   const fellOut = state.form === "black"
     ? player.y > ROWS * TILE + 360
     : player.y > ROWS * TILE + 100;
-  if (fellOut) respawn("fall");
+  if (fellOut && !state.overallPlaytest) {
+    player.x = Math.max(0, Math.min(WIDTH - player.w, player.x));
+    player.y = Math.min(player.y, ROWS * TILE - player.h);
+    player.vy = 0;
+  }
   state.shake = Math.max(0, state.shake - 25 * dt);
   updateDebugPanel();
   sendDebugSnapshot(dt);
@@ -284,8 +486,10 @@ function debugSnapshot() {
   if (!p) return null;
   const s = p.whiteSurface;
   const lastPlague = p.plague[p.plague.length - 1];
+  const roomDef = state.worldRooms[state.roomIndex];
   return {
     room: state.room?.id,
+    blocks: Array.isArray(roomDef?.blocks) ? roomDef.blocks : [],
     form: state.form,
     worldRot: state.worldRot,
     player: {
@@ -381,15 +585,25 @@ function handlePickups() {
     state.form = "red";
     state.selectedForm = "red";
     state.checkpoint.helmetOwned = true;
+    state.checkpoint.unlockedForms = [...state.unlockedForms];
+    state.checkpoint.form = state.form;
     hintLabel.textContent = "长按 Space 选骑士";
     state.shake = 5;
   }
   for (const item of room.abilityPickups || []) {
-    if (!state.helmetOwned || item.taken || !rectsOverlap(player, item)) continue;
+    if (item.taken || !rectsOverlap(player, item)) continue;
+    if (!state.helmetOwned && item.form !== "red") continue;
+    if (!state.helmetOwned && item.form === "red") {
+      state.helmetOwned = true;
+      state.checkpoint.helmetOwned = true;
+    }
     state.unlockedForms.add(item.form);
     item.taken = true;
     state.selectedForm = item.form;
     switchForm(item.form);
+    state.checkpoint.helmetOwned = state.helmetOwned;
+    state.checkpoint.unlockedForms = [...state.unlockedForms];
+    state.checkpoint.form = state.form;
     state.shake = 5;
   }
 }
@@ -402,11 +616,11 @@ function handleHazards() {
   }
   if (state.form !== "white") {
     for (const p of room.plagueHazards) {
-      if (Math.hypot(player.x + 12 - p.x, player.y + 14 - p.y) < 17 && !surviveHazard(player)) return;
+      if (rectTouchesPlague(player, p, 15) && !surviveHazard(player)) return;
     }
     if (player.plagueGrace <= 0) {
       for (const p of player.plague) {
-        if (touchesPlague(player.x + 12, player.y + 14, p, 15) && !surviveHazard(player)) return;
+        if (rectTouchesPlague(player, p, 15) && !surviveHazard(player)) return;
       }
     }
   }
@@ -436,6 +650,20 @@ function touchesPlague(px, py, plague, radius) {
   return Math.hypot(t - clamped, n - plague.n) < radius;
 }
 
+function rectTouchesPlague(rect, plague, radius) {
+  const inset = 3;
+  const points = [
+    [rect.x + rect.w / 2, rect.y + rect.h / 2],
+    [rect.x + inset, rect.y + inset],
+    [rect.x + rect.w - inset, rect.y + inset],
+    [rect.x + inset, rect.y + rect.h - inset],
+    [rect.x + rect.w - inset, rect.y + rect.h - inset],
+    [rect.x + rect.w / 2, rect.y + rect.h],
+    [rect.x + rect.w / 2, rect.y],
+  ];
+  return points.some(([x, y]) => touchesPlague(x, y, plague, radius));
+}
+
 function handleSwitches() {
   const { room, player } = state;
   const bodyCanPress = !(state.form === "green" && player.greenAfterimage);
@@ -445,8 +673,49 @@ function handleSwitches() {
     if (body || grave) s.latched = true;
     s.pressed = body || grave || s.latched;
   }
-  const open = (room.switches || []).some((s) => s.pressed);
+  for (const s of room.leverSwitches || []) {
+    const overlapping = rectsOverlap(player, s);
+    if (!overlapping) {
+      s.lastSide = null;
+      continue;
+    }
+    const side = leverSide(player, s);
+    const opposite = oppositeSide(s.initialSide || "right");
+    if (s.lastSide === (s.initialSide || "right") && side === opposite) s.pressed = !s.pressed;
+    s.lastSide = side;
+  }
+  const open = (room.switches || []).some((s) => s.pressed) || (room.leverSwitches || []).some((s) => s.pressed);
   for (const g of room.gates || []) g.open = open;
+}
+
+function leverSide(player, lever) {
+  const px = player.x + player.w / 2;
+  const py = player.y + player.h / 2;
+  const lx = lever.x + lever.w / 2;
+  const ly = lever.y + lever.h / 2;
+  if (lever.initialSide === "up" || lever.initialSide === "down") return py < ly ? "up" : "down";
+  return px < lx ? "left" : "right";
+}
+
+function oppositeSide(side) {
+  return { left: "right", right: "left", up: "down", down: "up" }[side] || "left";
+}
+
+function handleCheckpoints() {
+  const { room, player } = state;
+  for (const cp of room.checkpoints || []) {
+    if (!rectsOverlap(player, cp)) continue;
+    cp.active = true;
+    state.checkpoint = {
+      roomIndex: state.roomIndex,
+      x: cp.x + cp.w / 2 - player.w / 2,
+      y: cp.y + cp.h - player.h,
+      form: state.form,
+      helmetOwned: state.helmetOwned,
+      unlockedForms: [...state.unlockedForms],
+      worldRot: state.worldRot,
+    };
+  }
 }
 
 function handleEnemies() {
@@ -514,6 +783,27 @@ function playRollRefresh() {
 
 function handleRoomEdges() {
   const { player } = state;
+  if (state.overallPlaytest) {
+    if (player.x <= 0) {
+      if (!changeRoom("l")) player.x = 0;
+    } else if (player.x + player.w >= WIDTH) {
+      if (!changeRoom("r")) player.x = WIDTH - player.w;
+    }
+    if (player.y <= 0) {
+      if (!changeRoom("u")) {
+        player.y = 0;
+        player.vy = Math.max(0, player.vy);
+      }
+    } else if (player.y + player.h >= HEIGHT) {
+      if (!changeRoom("d")) {
+        player.y = HEIGHT - player.h;
+        player.vy = Math.min(0, player.vy);
+        player.onGround = true;
+        player.jumps = 0;
+      }
+    }
+    return;
+  }
   if (player.x <= 0 && inSideExit("l")) {
     if (!changeRoom("l")) player.x = 0;
   } else if (player.x + player.w >= WIDTH && inSideExit("r")) {
@@ -540,5 +830,16 @@ window.addEventListener("keydown", (event) => {
 });
 window.addEventListener("keyup", (event) => keys.delete(event.code));
 
-loadRoom(0);
+try {
+  if (!setupEditorWorldPlaytest() && !setupEditorPlaytest()) loadRoom(0);
+} catch (error) {
+  console.error("Playtest data failed to load", error);
+  state.worldRooms = worldRooms;
+  state.roomIndexById = new Map(worldRooms.map((room, index) => [room.id, index]));
+  state.overallPlaytest = false;
+  state.form = "none";
+  state.helmetOwned = false;
+  state.unlockedForms = new Set();
+  loadRoom(0);
+}
 requestAnimationFrame(frame);
