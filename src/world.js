@@ -81,10 +81,10 @@ const sideExitRows = {
 };
 
 const roomThemes = [
-  "移动 / 跳跃 / 白色死区", "可选头盔", "双路线", "白色贴面", "白色死区",
+  "移动 / 跳跃 / 冲刺", "红色能力拾取", "红色冲刺路线", "白色贴面", "白色死区",
   "白色钩锁", "红色四格脉冲", "红色QTE", "绿色墓碑残影", "黑色旋转侵蚀",
   "回头捷径", "无头盔高台", "白色天花板", "红色竖井", "绿线危险",
-  "钩锁转角", "黑色落井", "二段跳密室", "墓碑回溯", "红白混合",
+  "钩锁转角", "黑色落井", "冲刺密室", "墓碑回溯", "红白混合",
   "纵向回环", "隐藏砖", "瘟疫绕路", "战争破裂", "死亡暗道",
   "短支路", "饥荒箱庭", "平台节奏", "白绿选择", "红黑选择",
   "远端捷径", "天花板长廊", "红色连跳", "绿色桥", "黑色碎层",
@@ -120,7 +120,7 @@ function makeRoomDef(id) {
     name: `${String(id).padStart(2, "0")} / ${roomThemes[id - 1] || "连续地图"}`,
     spawn: id === 1 ? [68, ROOM_FLOOR * TILE - 28] : [70, ROOM_FLOOR * TILE - 28],
     flag: { x: TILE * 2 + 6, y: ROOM_FLOOR * TILE - FLAG_H, w: FLAG_W, h: FLAG_H },
-    helmet: id === 2 ? { x: TILE * 13 + 4, y: ROOM_FLOOR * TILE - 28, w: 24, h: 24, taken: false } : null,
+    helmet: id === 2 ? { x: TILE * 13 + 4, y: ROOM_FLOOR * TILE - 28, w: 24, h: 24, taken: false, form: "red" } : null,
     links,
     blocks: grid.map((row) => row.join("")),
   };

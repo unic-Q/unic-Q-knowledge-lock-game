@@ -27,6 +27,10 @@ export const ROLL_TIME = 0.34;
 export const ROLL_COOLDOWN = 0.82;
 export const ROLL_HAZARD_PAD = 0.1;
 
+export const NONE_DASH_SPEED = 620;
+export const NONE_DASH_TIME = 0.16;
+export const NONE_DASH_COOLDOWN = 0.32;
+
 export const RED_DASH_DISTANCE = TILE * 4;
 export const RED_DASH_TIME = 0.22;
 export const RED_QTE_TIME = 0.28;

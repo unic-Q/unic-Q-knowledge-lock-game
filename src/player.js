@@ -9,6 +9,8 @@ export function makePlayer(x, y) {
     jumps: 0,
     coyote: 0,
     dropTimer: 0,
+    noneDash: null,
+    noneDashCooldown: 0,
     wallSlide: 0,
     rollTimer: 0,
     rollCooldown: 0,
