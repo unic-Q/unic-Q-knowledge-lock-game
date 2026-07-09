@@ -2,10 +2,10 @@
 
 import {
   GRAVITY, MOVE, JUMP, RED_DASH_DISTANCE, RED_DASH_TIME, RED_QTE_TIME, RED_QTE_READY,
-  RED_KILL_QTE_BONUS, ROLL_SPEED, ROLL_UP, ROLL_TIME, GREEN_MOVE, GREEN_JUMP,
+  RED_KILL_QTE_BONUS, RED_AIR_GRAVITY_SCALE, ROLL_SPEED, ROLL_UP, ROLL_TIME, GREEN_MOVE, GREEN_JUMP,
   GREEN_GRAVITY, BLACK_JUMP, BLACK_GRAVITY,
   WHITE_SURFACE_SPEED, WHITE_PLAGUE_SPEED, WHITE_HOOK_RANGE, WHITE_HOOK_EXTEND, WHITE_HOOK_PULL, WHITE_HOOK_HOLD,
-  WHITE_SNAP, ERODE_RATE, ERODE_FAST,
+  WHITE_SNAP, ERODE_RATE, ERODE_FAST, WALL_TOUCH_RANGE,
 } from "./constants.js";
 import {
   activeBlocks, findWhiteSurface, snapWhiteToSurface, resolveWhiteOverlap, rectsOverlap,
@@ -16,13 +16,34 @@ export function updateNone(state, input, dt) {
   const { player } = state;
   player.rollCooldown = Math.max(0, player.rollCooldown - dt);
   player.rollTimer = Math.max(0, player.rollTimer - dt);
+  player.sideHazardGrace = Math.max(0, player.sideHazardGrace - dt);
+  const touchingLeftWall = activeBlocks(state).some((b) =>
+    Math.abs(player.x - (b.x + b.w)) < WALL_TOUCH_RANGE &&
+    player.y + player.h > b.y + 4 && player.y < b.y + b.h - 2
+  );
+  const touchingRightWall = activeBlocks(state).some((b) =>
+    Math.abs(player.x + player.w - b.x) < WALL_TOUCH_RANGE &&
+    player.y + player.h > b.y + 4 && player.y < b.y + b.h - 2
+  );
+  const grounded = isGroundedNow(state);
+  const hazardWallSide = player.sideHazardGrace > 0 ? player.sideHazardSide : 0;
   if (input.space && !state.helmetOwned && player.rollCooldown <= 0) {
     const dir = input.left ? -1 : input.right ? 1 : player.facing || 1;
-    player.facing = dir;
     player.rollTimer = ROLL_TIME;
     player.rollCooldown = 0.82;
-    player.vx = dir * ROLL_SPEED;
-    player.vy = Math.min(player.vy, -ROLL_UP);
+    if (!grounded && (touchingLeftWall || touchingRightWall || hazardWallSide !== 0)) {
+      const wallSide = touchingLeftWall ? -1 : touchingRightWall ? 1 : hazardWallSide;
+      const launchDir = -wallSide;
+      const diagonalSpeed = ROLL_SPEED / Math.sqrt(2);
+      player.facing = launchDir;
+      player.vx = launchDir * diagonalSpeed * 2;
+      player.vy = -diagonalSpeed;
+      player.sideHazardGrace = 0;
+    } else {
+      player.facing = dir;
+      player.vx = dir * ROLL_SPEED;
+      player.vy = Math.min(player.vy, -ROLL_UP);
+    }
   }
   if (input.left) {
     if (player.rollTimer <= 0) player.vx = -MOVE;
@@ -33,10 +54,7 @@ export function updateNone(state, input, dt) {
   } else {
     player.vx *= player.rollTimer > 0 ? 0.96 : 0.78;
   }
-  const nearWall = activeBlocks(state).some((b) =>
-    (Math.abs(player.x + player.w - b.x) < 4 || Math.abs(player.x - (b.x + b.w)) < 4) &&
-    player.y + player.h > b.y + 4 && player.y < b.y + b.h - 2
-  );
+  const nearWall = touchingLeftWall || touchingRightWall;
   if (nearWall && !player.onGround && (input.left || input.right)) player.vy = Math.min(player.vy, 150);
   if (input.up && player.rollTimer <= 0 && (player.jumps < 2 || player.coyote > 0)) {
     const boost = Math.min(120, Math.max(0, player.vy - 680) * 0.25);
@@ -426,7 +444,7 @@ export function updateRed(state, input, dt) {
     player.redDash.lastEase = eased;
     player.vx = player.redDash.dx * step / dt;
     player.vy = player.redDash.dy * step / dt + player.redDash.gravityVy;
-    player.redDash.gravityVy += GRAVITY * 0.32 * dt;
+    player.redDash.gravityVy += GRAVITY * RED_AIR_GRAVITY_SCALE * dt;
     if (player.redDash.t >= RED_DASH_TIME) player.redDash = null;
     return;
   }
@@ -434,7 +452,7 @@ export function updateRed(state, input, dt) {
   if (player.redQte) {
     player.redQte.t += dt;
     player.vx = 0;
-    player.vy += GRAVITY * 0.28 * dt;
+    player.vy += GRAVITY * RED_AIR_GRAVITY_SCALE * dt;
     if (player.redQte.t > RED_QTE_TIME) {
       redBurnout(state);
       return;
@@ -458,17 +476,28 @@ export function updateRed(state, input, dt) {
       return;
     }
     player.redMisses = 0;
-    startRedDash(state, dir);
+    startRedDash(state, dir, dt);
     return;
   }
-  startRedDash(state, dir);
+  startRedDash(state, dir, dt);
 }
 
-function startRedDash(state, dir) {
+function startRedDash(state, dir, dt) {
   const { player } = state;
-  player.vx = dir[0] * (RED_DASH_DISTANCE / RED_DASH_TIME) * 2.6;
-  player.vy = dir[1] * (RED_DASH_DISTANCE / RED_DASH_TIME) * 2.6;
-  player.redDash = { dx: dir[0], dy: dir[1], name: dir[2], t: 0, lastEase: 0, gravityVy: 0 };
+  const firstTime = Math.min(RED_DASH_TIME, dt);
+  const p = firstTime / RED_DASH_TIME;
+  const firstEase = 1 - (1 - p) * (1 - p) * (1 - p);
+  const firstStep = RED_DASH_DISTANCE * firstEase;
+  player.vx = dir[0] * firstStep / dt;
+  player.vy = dir[1] * firstStep / dt;
+  player.redDash = {
+    dx: dir[0],
+    dy: dir[1],
+    name: dir[2],
+    t: firstTime,
+    lastEase: firstEase,
+    gravityVy: 0
+  };
   player.redQte = { t: 0 };
 }
 

@@ -5,7 +5,7 @@ import {
   JUMP, MOVE, RED_DASH_DISTANCE, RED_QTE_READY, RED_QTE_TIME, ROWS, TILE,
   WHITE_HOOK_RANGE, WHITE_PLAGUE_SPEED, WHITE_SURFACE_SPEED,
 } from "./constants.js";
-import { transformedRect, isGreenAfterimage } from "./physics.js";
+import { transformedRect, isGreenAfterimage, rotatePoint } from "./physics.js";
 
 function drawRect(ctx, r, fill, stroke) {
   ctx.fillStyle = fill;
@@ -14,7 +14,7 @@ function drawRect(ctx, r, fill, stroke) {
   ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
 }
 
-function drawFlag(ctx, flag, raised, progress = 1) {
+function drawFlag(ctx, flag, raised, progress = 1, current = false) {
   const lift = raised ? 13 * (1 - progress) : 13;
   ctx.strokeStyle = "#f0dca2";
   ctx.lineWidth = 3;
@@ -22,7 +22,7 @@ function drawFlag(ctx, flag, raised, progress = 1) {
   ctx.moveTo(flag.x + 4, flag.y + 27);
   ctx.lineTo(flag.x + 4, flag.y + 2);
   ctx.stroke();
-  ctx.fillStyle = raised ? "#f4c95d" : "#8c7a52";
+  ctx.fillStyle = current ? "#74c476" : raised ? "#f4c95d" : "#8c7a52";
   ctx.beginPath();
   ctx.moveTo(flag.x + 5, flag.y + 4 + lift);
   ctx.lineTo(flag.x + 27, flag.y + 9 + lift);
@@ -57,6 +57,22 @@ function drawAbility(ctx, item) {
   ctx.strokeStyle = "#f4c95d";
   ctx.lineWidth = 2;
   ctx.stroke();
+}
+
+function drawCoin(ctx, item) {
+  const cx = item.x + item.w / 2;
+  const cy = item.y + item.h / 2;
+  ctx.save();
+  ctx.fillStyle = "#f5c542";
+  ctx.strokeStyle = "#a96f16";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.min(item.w, item.h) / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#fff1a8";
+  ctx.fillRect(cx - 1, cy - 5, 2, 10);
+  ctx.restore();
 }
 
 function drawHazard(ctx, h) {
@@ -123,14 +139,14 @@ function leverVector(side) {
   }[side] || { x: 1, y: 0 };
 }
 
-function drawCheckpoint(ctx, f) {
+function drawCheckpoint(ctx, f, current = false) {
   ctx.strokeStyle = "#f0dca2";
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(f.x + 3, f.y + f.h);
   ctx.lineTo(f.x + 3, f.y + 2);
   ctx.stroke();
-  ctx.fillStyle = f.active ? "#74c476" : "#f4c95d";
+  ctx.fillStyle = current ? "#74c476" : "#f4c95d";
   ctx.beginPath();
   ctx.moveTo(f.x + 5, f.y + 4);
   ctx.lineTo(f.x + 22, f.y + 9);
@@ -147,8 +163,24 @@ function drawPlatform(ctx, p) {
 }
 
 function drawGate(ctx, g) {
-  if (g.open) return;
-  drawRect(ctx, g, "#3c4a56", "#f4c95d");
+  const amount = Math.max(0, Math.min(1, g.openAmount || 0));
+  if (amount >= 0.99) return;
+  const h = g.h * (1 - amount);
+  drawRect(ctx, { ...g, y: g.y + (g.h - h) / 2, h }, `rgba(60,74,86,${1 - amount * 0.7})`, "#f4c95d");
+}
+
+function drawLightning(ctx, segment, state) {
+  if (segment.disabled) return;
+  const a = rotatePoint(segment.ax, segment.ay, state.worldRot);
+  const b = rotatePoint(segment.bx, segment.by, state.worldRot);
+  ctx.save();
+  ctx.strokeStyle = state.form === "green" ? "#9fd2ad" : "#35f28a";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawCracks(ctx, r, level) {
@@ -335,13 +367,40 @@ export function draw(ctx, state) {
     ctx.fillRect(r.x + 6, r.y + 6, (r.w - 12) * Math.max(0, b.hp), 4);
   }
   for (const b of room.hidden) {
-    if (isGreenAfterimage(state)) drawRect(ctx, transformedRect(state, b), "rgba(127,160,131,0.6)", "#b8dbc0");
+    const r = transformedRect(state, b);
+    if (!rectsOverlap(player, r)) drawRect(ctx, r, "#607487", "#314252");
+  }
+  for (const b of room.breakablePlatforms || []) {
+    if (b.broken) continue;
+    const r = transformedRect(state, b);
+    const stress = Math.min(1, b.standTime / 2);
+    drawRect(ctx, r, `rgb(${154 + stress * 35},${128 - stress * 35},${101 - stress * 30})`, "#4f4035");
+    drawCracks(ctx, r, stress > 0.66 ? 2 : stress > 0.33 ? 1 : 0);
   }
   for (const g of room.gates || []) drawGate(ctx, transformedRect(state, g));
-  for (const h of room.hazards || []) drawHazard(ctx, transformedRect(state, h));
+  for (const h of room.hazards || []) if (!h.disabled) drawHazard(ctx, transformedRect(state, h));
+  for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
+  const lightningDisabled = Boolean(room.lightningDisabled);
+  if (!lightningDisabled) {
+    for (const node of room.lightningNodes || []) {
+      const x = node.face === 1 ? (node.x + 1) * TILE :
+        node.face === 3 ? node.x * TILE : node.x * TILE + TILE / 2;
+      const y = node.face === 2 ? (node.y + 1) * TILE :
+        node.face === 0 ? node.y * TILE : node.y * TILE + TILE / 2;
+      const p = rotatePoint(x, y, state.worldRot);
+      ctx.fillStyle = state.form === "green" ? "#b8dbc0" : "#64ffad";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   for (const s of room.switches || []) drawSwitch(ctx, s);
+  for (const s of room.repeatSwitches || []) drawSwitch(ctx, s);
   for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, s);
-  for (const f of room.checkpoints || []) drawCheckpoint(ctx, f);
+  for (const f of room.checkpoints || []) {
+    const key = `checkpoint:${room.id}:${f.x},${f.y}`;
+    drawCheckpoint(ctx, f, state.checkpoint?.key === key);
+  }
   for (const e of room.enemies || []) drawEnemy(ctx, e);
   for (const a of room.anchors) {
     ctx.fillStyle = "#f4f2e6";
@@ -365,9 +424,22 @@ export function draw(ctx, state) {
     ctx.stroke();
   }
   for (const g of player.graves) drawRect(ctx, { x: g.x, y: g.y, w: 28, h: 32 }, "#617064", "#a4bea8");
-  if (room.flag) drawFlag(ctx, transformedRect(state, room.flag), state.raisedFlags.has(room.id), room.flagProgress ?? 1);
+  if (room.flag) {
+    drawFlag(
+      ctx,
+      transformedRect(state, room.flag),
+      state.raisedFlags.has(room.id),
+      room.flagProgress ?? 1,
+      state.checkpoint?.key === `flag:${room.id}`
+    );
+  }
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken) drawHelmet(ctx, room.helmet);
   for (const item of room.abilityPickups || []) if (!item.taken && !state.unlockedForms?.has(item.form)) drawAbility(ctx, item);
+  for (const coin of room.coins || []) {
+    if (coin.disabled) continue;
+    const key = `${room.id}:${coin.x},${coin.y}`;
+    if (!state.collectedCoins?.has(key)) drawCoin(ctx, coin);
+  }
 
   if (player.hook && player.hookTime > 0) {
     ctx.strokeStyle = player.hook.hit ? "#f4f2e6" : "rgba(244,242,230,0.45)";
@@ -460,7 +532,7 @@ function drawVisitedMap(ctx, state) {
         if (cell === ".") continue;
         ctx.fillStyle = cell === "!" ? "#9c3038" :
           cell === "~" ? "#8ee6ff" :
-            "GRWB".includes(cell) ? "#f4c95d" :
+            "GRWBC".includes(cell) ? "#f4c95d" :
               cell === "M" ? "#3f273f" :
                 cell === "D" ? "#6f7884" :
                   "#607487";

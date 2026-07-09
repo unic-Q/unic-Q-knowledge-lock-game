@@ -81,10 +81,10 @@ const sideExitRows = {
 };
 
 const roomThemes = [
-  "移动 / 跳跃 / 冲刺", "红色能力拾取", "红色冲刺路线", "白色贴面", "白色死区",
+  "移动 / 跳跃 / 白色死区", "可选头盔", "双路线", "白色贴面", "白色死区",
   "白色钩锁", "红色四格脉冲", "红色QTE", "绿色墓碑残影", "黑色旋转侵蚀",
   "回头捷径", "无头盔高台", "白色天花板", "红色竖井", "绿线危险",
-  "钩锁转角", "黑色落井", "冲刺密室", "墓碑回溯", "红白混合",
+  "钩锁转角", "黑色落井", "二段跳密室", "墓碑回溯", "红白混合",
   "纵向回环", "隐藏砖", "瘟疫绕路", "战争破裂", "死亡暗道",
   "短支路", "饥荒箱庭", "平台节奏", "白绿选择", "红黑选择",
   "远端捷径", "天花板长廊", "红色连跳", "绿色桥", "黑色碎层",
@@ -120,7 +120,7 @@ function makeRoomDef(id) {
     name: `${String(id).padStart(2, "0")} / ${roomThemes[id - 1] || "连续地图"}`,
     spawn: id === 1 ? [68, ROOM_FLOOR * TILE - 28] : [70, ROOM_FLOOR * TILE - 28],
     flag: { x: TILE * 2 + 6, y: ROOM_FLOOR * TILE - FLAG_H, w: FLAG_W, h: FLAG_H },
-    helmet: id === 2 ? { x: TILE * 13 + 4, y: ROOM_FLOOR * TILE - 28, w: 24, h: 24, taken: false, form: "red" } : null,
+    helmet: id === 2 ? { x: TILE * 13 + 4, y: ROOM_FLOOR * TILE - 28, w: 24, h: 24, taken: false } : null,
     links,
     blocks: grid.map((row) => row.join("")),
   };
@@ -459,6 +459,7 @@ function applyRoomPattern(grid, id) {
 export function parseRoom(data) {
   const blocks = [];
   const platforms = [];
+  const breakablePlatforms = [];
   const cracks = [];
   const hidden = [];
   const anchors = [];
@@ -467,31 +468,56 @@ export function parseRoom(data) {
   const hazards = [];
   const enemies = [];
   const switches = [];
+  const repeatSwitches = [];
   const leverSwitches = [];
   const gates = [];
   const checkpoints = [];
   const abilityPickups = [];
+  const coins = [];
+  const hiddenTriggers = [];
   data.blocks.forEach((row, y) => {
     [...row].forEach((cell, x) => {
       const b = { x: x * TILE, y: y * TILE, w: TILE, h: TILE, hp: 1, maxHp: 1, sink: 0, broken: false };
       if (cell === "#" || cell === "X" || cell === "E") blocks.push({ ...b, hp: 3, maxHp: 3 });
       if (cell === "=") platforms.push({ x: b.x, y: b.y, w: TILE, h: TILE / 2, face: "up" });
       if (cell === "-") platforms.push({ x: b.x, y: b.y + TILE / 2, w: TILE, h: TILE / 2, face: "up" });
-      if (cell === "U") platforms.push({ x: b.x, y: b.y + TILE / 2, w: TILE, h: TILE / 2, face: "down" });
+      if (cell === "U") breakablePlatforms.push({ x: b.x, y: b.y + TILE / 2, w: TILE, h: TILE / 2, standTime: 0, broken: false, restoreTime: 0 });
       if (cell === "L") platforms.push({ x: b.x, y: b.y, w: TILE / 2, h: TILE, face: "left" });
       if (cell === "J") platforms.push({ x: b.x + TILE / 2, y: b.y, w: TILE / 2, h: TILE, face: "right" });
       if (cell === "H") hidden.push(b);
-      if (cell === "!") hazards.push({ ...b, type: "spike" });
+      if (cell === "!") hazards.push({ ...b, type: "spike", targetKey: `cell:${x},${y}`, disabled: false });
       if (cell === "~") hazards.push({ ...b, type: "electric" });
       if (cell === "M") enemies.push({ x: b.x + 4, y: b.y + 7, w: TILE - 8, h: TILE - 7, alive: true });
       if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false, latched: false });
-      if ("<>^vS".includes(cell)) {
-        const initialSide = { "<": "left", ">": "right", "^": "up", "v": "down", S: "right" }[cell];
-        leverSwitches.push({ x: b.x + 4, y: b.y + 4, w: TILE - 8, h: TILE - 8, pressed: false, lastSide: null, initialSide });
+      if (cell === "S") {
+        repeatSwitches.push({
+          x: b.x + 4,
+          y: b.y + TILE * 0.62,
+          w: TILE - 8,
+          h: TILE * 0.38,
+          pressed: false,
+          wasOverlapping: false,
+          switchKey: `${x},${y}`,
+        });
+      }
+      if ("<>^v".includes(cell)) {
+        const initialSide = { "<": "left", ">": "right", "^": "up", "v": "down" }[cell];
+        leverSwitches.push({ x: b.x + 4, y: b.y + 4, w: TILE - 8, h: TILE - 8, pressed: false, lastSide: null, initialSide, switchKey: `${x},${y}` });
       }
       if (cell === "F") checkpoints.push({ x: b.x + 6, y: b.y + 2, w: 22, h: 30, active: false });
-      if (cell === "D") gates.push({ ...b, open: false });
+      if (cell === "D") gates.push({ ...b, open: false, openAmount: 0, targetKey: `cell:${x},${y}` });
       if ("GRWB".includes(cell)) abilityPickups.push({ x: b.x + 4, y: b.y + 4, w: 24, h: 24, form: { G: "green", R: "red", W: "white", B: "black" }[cell], taken: false });
+      if (cell === "C") coins.push({ x: b.x + 7, y: b.y + 7, w: 18, h: 18, targetKey: `cell:${x},${y}`, disabled: false });
+      if (cell === "I" || cell === "T") hiddenTriggers.push({
+        x: b.x,
+        y: b.y,
+        w: TILE,
+        h: TILE,
+        once: cell === "I",
+        pressed: false,
+        latched: false,
+        switchKey: `${x},${y}`,
+      });
       if (cell === "A") anchors.push({ x: b.x + TILE / 2, y: b.y + TILE / 2 });
       if (cell === "P") {
         plagueHazards.push({
@@ -513,7 +539,78 @@ export function parseRoom(data) {
     const segment = plagueSegmentFromSurface(surface);
     if (segment) plagueHazards.push(segment);
   }
-  return { ...data, blocks, platforms, cracks, hidden, anchors, erode, plagueHazards, hazards, enemies, switches, leverSwitches, gates, checkpoints, abilityPickups };
+  for (const s of switches) {
+    s.switchKey = `${Math.floor(s.x / TILE)},${Math.floor(s.y / TILE)}`;
+  }
+  const lightningNodes = (data.lightningNodes || []).filter(node => Number.isInteger(node?.x) && Number.isInteger(node?.y));
+  const lightningSegments = [];
+  const lightningPoint = (node) => {
+    if (node.face === 0) return { x: node.x * TILE + TILE / 2, y: node.y * TILE };
+    if (node.face === 1) return { x: (node.x + 1) * TILE, y: node.y * TILE + TILE / 2 };
+    if (node.face === 2) return { x: node.x * TILE + TILE / 2, y: (node.y + 1) * TILE };
+    if (node.face === 3) return { x: node.x * TILE, y: node.y * TILE + TILE / 2 };
+    return { x: node.x * TILE + TILE / 2, y: node.y * TILE + TILE / 2 };
+  };
+  for (let i = 1; i < lightningNodes.length; i += 1) {
+    const a = lightningNodes[i - 1];
+    const c = lightningNodes[i];
+    const ap = lightningPoint(a);
+    const cp = lightningPoint(c);
+    lightningSegments.push({
+      ax: ap.x,
+      ay: ap.y,
+      bx: cp.x,
+      by: cp.y,
+      targetKey: "lightning:main",
+      disabled: false,
+    });
+  }
+  for (const patrol of data.enemyPatrols || []) {
+    const sx = Number(patrol?.start?.x);
+    const sy = Number(patrol?.start?.y);
+    const ex = Number(patrol?.end?.x);
+    const ey = Number(patrol?.end?.y);
+    if (![sx, sy, ex, ey].every(Number.isInteger)) continue;
+    const minX = Math.min(sx, ex);
+    const maxX = Math.max(sx, ex);
+    const minY = Math.min(sy, ey);
+    const maxY = Math.max(sy, ey);
+    const enemy = enemies.find(item => Math.floor(item.x / TILE) === sx && Math.floor(item.y / TILE) === sy);
+    if (!enemy) continue;
+    enemy.patrol = {
+      minX: minX * TILE + 4,
+      maxX: (maxX + 1) * TILE - enemy.w - 4,
+      minY: minY * TILE + 7,
+      maxY: (maxY + 1) * TILE - enemy.h,
+      axis: maxX > minX ? "x" : maxY > minY ? "y" : null,
+      direction: 1,
+      speed: TILE,
+    };
+  }
+  return {
+    ...data,
+    blocks,
+    platforms,
+    breakablePlatforms,
+    cracks,
+    hidden,
+    anchors,
+    erode,
+    plagueHazards,
+    hazards,
+    enemies,
+    switches,
+    repeatSwitches,
+    leverSwitches,
+    hiddenTriggers,
+    gates,
+    checkpoints,
+    abilityPickups,
+    coins,
+    lightningNodes,
+    lightningSegments,
+    controlBindings: Array.isArray(data.controlBindings) ? data.controlBindings : [],
+  };
 }
 
 function plagueSegmentFromSurface(surface) {

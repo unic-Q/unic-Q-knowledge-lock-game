@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 
@@ -34,11 +34,14 @@ const server = createServer((req, res) => {
     try {
       if (existsSync(allPath)) {
         payload = JSON.parse(readFileSync(allPath, "utf8"));
-      } else if (existsSync(outDir)) {
-        payload.rooms = readdirSync(outDir)
-          .filter((name) => /^room-\d+\.json$/i.test(name))
-          .map((name) => JSON.parse(readFileSync(join(outDir, name), "utf8")))
-          .sort((a, b) => (a.room || 0) - (b.room || 0));
+      }
+      if (existsSync(outDir)) {
+        const roomsById = new Map((payload.rooms || []).map((room) => [Number(room.room ?? room.id), room]));
+        for (const name of readdirSync(outDir).filter((entry) => /^room-\d+\.json$/i.test(entry))) {
+          const room = JSON.parse(readFileSync(join(outDir, name), "utf8"));
+          roomsById.set(Number(room.room ?? room.id), room);
+        }
+        payload.rooms = [...roomsById.values()].sort((a, b) => Number(a.room ?? a.id) - Number(b.room ?? b.id));
       }
       if (existsSync(mapPath)) map = JSON.parse(readFileSync(mapPath, "utf8"));
       res.writeHead(200, {
@@ -69,12 +72,24 @@ const server = createServer((req, res) => {
         const rooms = Array.isArray(payload.rooms) ? payload.rooms : [];
         const outDir = join(root, "关卡导出");
         mkdirSync(outDir, { recursive: true });
+        const allPath = join(outDir, "all-levels.json");
+        let existing = { version: 1, cols: payload.cols || 20, rows: payload.rows || 20, rooms: [] };
+        if (existsSync(allPath)) {
+          existing = JSON.parse(readFileSync(allPath, "utf8"));
+        }
+        const roomsById = new Map((existing.rooms || []).map((room) => [Number(room.room ?? room.id), room]));
         for (const room of rooms) {
           if (!Number.isInteger(room.room)) continue;
           const filename = `room-${String(room.room).padStart(2, "0")}.json`;
           writeFileSync(join(outDir, filename), `${JSON.stringify(room, null, 2)}\n`, "utf8");
+          roomsById.set(room.room, room);
         }
-        writeFileSync(join(outDir, "all-levels.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+        const merged = {
+          ...existing,
+          ...payload,
+          rooms: [...roomsById.values()].sort((a, b) => Number(a.room ?? a.id) - Number(b.room ?? b.id)),
+        };
+        writeFileSync(allPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
         res.writeHead(200, {
           "Content-Type": "application/json; charset=utf-8",
           "Cache-Control": "no-store",
@@ -109,6 +124,50 @@ const server = createServer((req, res) => {
           "Cache-Control": "no-store",
         });
         res.end(JSON.stringify({ ok: true, dir: outDir }));
+      } catch (error) {
+        res.writeHead(400, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify({ ok: false, error: String(error?.message || error) }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/delete-level") {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 100_000) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        const roomId = Number(JSON.parse(body || "{}").room);
+        if (!Number.isInteger(roomId) || roomId < 1) throw new Error("无效的关卡编号");
+        const outDir = join(root, "关卡导出");
+        const roomPath = join(outDir, `room-${String(roomId).padStart(2, "0")}.json`);
+        const allPath = join(outDir, "all-levels.json");
+        const mapPath = join(outDir, "map-layout.json");
+        if (existsSync(roomPath)) unlinkSync(roomPath);
+
+        if (existsSync(allPath)) {
+          const payload = JSON.parse(readFileSync(allPath, "utf8"));
+          payload.rooms = (payload.rooms || []).filter((room) => Number(room.room ?? room.id) !== roomId);
+          writeFileSync(allPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+        }
+        if (existsSync(mapPath)) {
+          const map = JSON.parse(readFileSync(mapPath, "utf8"));
+          if (map.positions) delete map.positions[String(roomId)];
+          writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`, "utf8");
+        }
+
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify({ ok: true, room: roomId }));
       } catch (error) {
         res.writeHead(400, {
           "Content-Type": "application/json; charset=utf-8",

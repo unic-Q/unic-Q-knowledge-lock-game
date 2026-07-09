@@ -2,10 +2,11 @@
 
 import {
   WIDTH, HEIGHT, COLS, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FORMS, GRAVITY,
+  ROLL_REFRESH_SOUND_INTERVAL, SIDE_HAZARD_GRACE,
 } from "./constants.js";
 import { makePlayer } from "./player.js";
 import { parseRoom, worldRooms } from "./world.js";
-import { rectsOverlap, moveAxis, pointNearSegment, transformedRect } from "./physics.js";
+import { rectsOverlap, moveAxis, pointNearSegment, transformedRect, rotatePoint } from "./physics.js";
 import { updateNone, updateWhite, updateRed, updateGreen, updateBlack } from "./mechanics.js";
 import { draw } from "./render.js";
 
@@ -14,6 +15,7 @@ const ctx = canvas.getContext("2d");
 const roomTitle = document.getElementById("roomTitle");
 const formLabel = document.getElementById("formLabel");
 const hintLabel = document.getElementById("hintLabel");
+const coinLabel = document.getElementById("coinLabel");
 const debugPanel = document.getElementById("debugPanel");
 
 const keys = new Set();
@@ -40,6 +42,7 @@ const state = {
   worldRot: 0,
   shake: 0,
   raisedFlags: new Set(),
+  collectedCoins: new Set(),
   checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, unlockedForms: [], worldRot: 0 },
   lastRespawn: "none",
   eventLog: [],
@@ -140,6 +143,9 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     links: room?.links && typeof room.links === "object" ? room.links : {},
     blocks: normalizePlaytestBlocks(room?.blocks),
     surfacePlagues: normalizePlaytestSurfacePlagues(room?.surfacePlagues),
+    controlBindings: Array.isArray(room?.controlBindings) ? room.controlBindings : [],
+    lightningNodes: Array.isArray(room?.lightningNodes) ? room.lightningNodes : [],
+    enemyPatrols: Array.isArray(room?.enemyPatrols) ? room.enemyPatrols : [],
   };
 }
 
@@ -152,7 +158,6 @@ function linksFromMapPositions(rooms, positions) {
 
   const tolerance = 8;
   const maxGap = 150;
-
   for (const room of entries) {
     const candidates = { l: [], r: [], u: [], d: [] };
     for (const other of entries) {
@@ -217,6 +222,7 @@ function updateHud() {
   formLabel.textContent = FORMS[state.form].name;
   formLabel.style.color = FORMS[state.form].color;
   hintLabel.textContent = state.helmetOwned ? "长按 Space 选骑士" : "第2关可拾取头盔，也可以不拿";
+  coinLabel.textContent = `金币 × ${state.collectedCoins.size}`;
 }
 
 function applyLoadout(loadout) {
@@ -363,6 +369,7 @@ function activateCheckpoint() {
     roomIndex: state.roomIndex,
     x: flagRect.x + 24,
     y: flagRect.y + flagRect.h - player.h,
+    key: `flag:${room.id}`,
     form: state.form,
     helmetOwned: state.helmetOwned,
     unlockedForms: [...state.unlockedForms],
@@ -392,12 +399,10 @@ function seamlessChangeRoom(dir, targetId, fromId) {
   const old = state.player;
   const targetIndex = roomIndexForId(targetId);
   let spawn = [old.x, old.y];
-  if (dir === "r") spawn = [2, old.y];
-  if (dir === "l") spawn = [WIDTH - old.w - 2, old.y];
-  if (dir === "u") spawn = [old.x, HEIGHT - old.h - 2];
-  if (dir === "d") spawn = [old.x, 2];
-  spawn[0] = Math.max(0, Math.min(WIDTH - old.w, spawn[0]));
-  spawn[1] = Math.max(0, Math.min(HEIGHT - old.h, spawn[1]));
+  if (dir === "r") spawn = [old.x - WIDTH, old.y];
+  if (dir === "l") spawn = [old.x + WIDTH, old.y];
+  if (dir === "u") spawn = [old.x, old.y + HEIGHT];
+  if (dir === "d") spawn = [old.x, old.y - HEIGHT];
 
   const preserved = {
     vx: old.vx,
@@ -408,6 +413,10 @@ function seamlessChangeRoom(dir, targetId, fromId) {
     dropTimer: old.dropTimer,
     rollTimer: old.rollTimer,
     rollCooldown: old.rollCooldown,
+    rollRefreshSoundCooldown: old.rollRefreshSoundCooldown,
+    sideHazardGrace: old.sideHazardGrace,
+    sideHazardSide: old.sideHazardSide,
+    sideHazardLatched: old.sideHazardLatched,
     redQte: old.redQte,
     redDash: old.redDash,
     redQteBonus: old.redQteBonus,
@@ -488,6 +497,7 @@ function update(dt) {
   if (state.raisedFlags.has(state.room.id)) state.room.flagProgress = Math.min(1, (state.room.flagProgress ?? 1) + dt * 4.5);
 
   const { player } = state;
+  player.rollRefreshSoundCooldown = Math.max(0, player.rollRefreshSoundCooldown - dt);
   if (player.rollRefreshQueued) {
     player.rollRefreshQueued = false;
     playRollRefresh();
@@ -507,13 +517,16 @@ function update(dt) {
   else if (state.form === "green") updateGreen(state, input, dt);
   else if (state.form === "black") updateBlack(state, input, dt);
 
-  handleSwitches();
+  handleSwitches(dt);
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
 
+  handleSwitches(0);
   handlePickups();
-  handleSwitches();
+  updateBreakablePlatforms(dt);
   handleCheckpoints();
+  player.sideHazardContactThisFrame = false;
+  updateEnemyPatrols(dt);
   handleEnemies();
   activateCheckpoint();
   handleHazards();
@@ -630,6 +643,14 @@ function sendDebugSnapshot(dt) {
 
 function handlePickups() {
   const { room, player } = state;
+  for (const coin of room.coins || []) {
+    if (coin.disabled) continue;
+    const key = `${room.id}:${coin.x},${coin.y}`;
+    if (state.collectedCoins.has(key) || !rectsOverlap(player, coin)) continue;
+    state.collectedCoins.add(key);
+    state.shake = Math.max(state.shake, 2);
+    updateHud();
+  }
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
     state.worldRooms[state.roomIndex].helmet.taken = true;
     state.helmetOwned = true;
@@ -643,9 +664,12 @@ function handlePickups() {
     state.shake = 5;
   }
   for (const item of room.abilityPickups || []) {
+    if (state.unlockedForms.has(item.form)) {
+      item.taken = true;
+      continue;
+    }
     if (item.taken || !rectsOverlap(player, item)) continue;
-    if (!state.helmetOwned && item.form !== "red") continue;
-    if (!state.helmetOwned && item.form === "red") {
+    if (!state.helmetOwned) {
       state.helmetOwned = true;
       state.checkpoint.helmetOwned = true;
     }
@@ -663,24 +687,116 @@ function handlePickups() {
 function handleHazards() {
   const { player, room } = state;
   for (const h of room.hazards || []) {
+    if (h.disabled) continue;
     const canIgnore = h.type === "electric" && state.form === "green" && player.greenAfterimage;
-    if (!canIgnore && rectsOverlap(expandedRollRect(player), h) && !surviveHazard(player)) return;
+    if (!canIgnore && rectsOverlap(expandedRollRect(player), h)) {
+      if (protectSideHazard(player, rectHazardSide(player, h))) continue;
+      if (!surviveHazard(player)) return;
+    }
   }
   if (state.form !== "white") {
     for (const p of room.plagueHazards) {
-      if (rectTouchesPlague(player, p, 15) && !surviveHazard(player)) return;
+      if (!rectTouchesPlague(player, p, 15)) continue;
+      if (protectSideHazard(player, plagueHazardSide(player, p, 15))) continue;
+      if (!surviveHazard(player)) return;
     }
     if (player.plagueGrace <= 0) {
       for (const p of player.plague) {
-        if (rectTouchesPlague(player, p, 15) && !surviveHazard(player)) return;
+        if (!rectTouchesPlague(player, p, 15)) continue;
+        if (protectSideHazard(player, plagueHazardSide(player, p, 15))) continue;
+        if (!surviveHazard(player)) return;
       }
     }
   }
   if (state.form !== "green") {
     for (let i = 1; i < player.graves.length; i += 1) {
-      if (pointNearSegment(player.x + 12, player.y + 14, player.graves[i - 1], player.graves[i]) < 8 && !surviveHazard(player)) return;
+      const a = player.graves[i - 1];
+      const b = player.graves[i];
+      if (pointNearSegment(player.x + 12, player.y + 14, a, b) >= 8) continue;
+      if (protectSideHazard(player, segmentHazardSide(player, a, b, 8))) continue;
+      if (!surviveHazard(player)) return;
     }
   }
+  for (const segment of room.lightningSegments || []) {
+    if (segment.disabled || state.form === "green") continue;
+    const a = rotatePoint(segment.ax, segment.ay, state.worldRot);
+    const b = rotatePoint(segment.bx, segment.by, state.worldRot);
+    if (!rectTouchesSegment(player, a, b, 2)) continue;
+    if (protectSideHazard(player, segmentHazardSide(player, a, b, 10))) continue;
+    if (!surviveHazard(player)) return;
+  }
+  if (!player.sideHazardContactThisFrame) {
+    player.sideHazardGrace = 0;
+    player.sideHazardSide = 0;
+    player.sideHazardLatched = false;
+  }
+}
+
+function protectSideHazard(player, side) {
+  if (state.form !== "none" || player.rollTimer > 0 || side === 0) return false;
+  player.sideHazardContactThisFrame = true;
+  if (!player.sideHazardLatched) {
+    player.sideHazardLatched = true;
+    player.sideHazardGrace = SIDE_HAZARD_GRACE;
+    player.sideHazardSide = side;
+  }
+  return player.sideHazardGrace > 0;
+}
+
+function rectHazardSide(player, hazard) {
+  const overlapX = Math.min(player.x + player.w, hazard.x + hazard.w) - Math.max(player.x, hazard.x);
+  const overlapY = Math.min(player.y + player.h, hazard.y + hazard.h) - Math.max(player.y, hazard.y);
+  if (overlapX <= 0 || overlapY <= 0 || overlapX > overlapY) return 0;
+  return player.x + player.w / 2 < hazard.x + hazard.w / 2 ? 1 : -1;
+}
+
+function plagueHazardSide(player, plague, radius) {
+  const ys = [player.y + 4, player.y + player.h / 2, player.y + player.h - 4];
+  const left = ys.some((y) => touchesPlague(player.x, y, plague, radius));
+  const right = ys.some((y) => touchesPlague(player.x + player.w, y, plague, radius));
+  return left === right ? 0 : left ? -1 : 1;
+}
+
+function segmentHazardSide(player, a, b, radius) {
+  const left = segmentsIntersect(a, b, { x: player.x, y: player.y }, { x: player.x, y: player.y + player.h }) ||
+    pointNearSegment(player.x, player.y + player.h / 2, a, b) < radius;
+  const right = segmentsIntersect(a, b, { x: player.x + player.w, y: player.y }, { x: player.x + player.w, y: player.y + player.h }) ||
+    pointNearSegment(player.x + player.w, player.y + player.h / 2, a, b) < radius;
+  return left === right ? 0 : left ? -1 : 1;
+}
+
+function rectTouchesSegment(rect, a, b, padding = 0) {
+  const left = rect.x - padding;
+  const right = rect.x + rect.w + padding;
+  const top = rect.y - padding;
+  const bottom = rect.y + rect.h + padding;
+  const inside = (point) =>
+    point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
+  if (inside(a) || inside(b)) return true;
+  const edges = [
+    [{ x: left, y: top }, { x: right, y: top }],
+    [{ x: right, y: top }, { x: right, y: bottom }],
+    [{ x: right, y: bottom }, { x: left, y: bottom }],
+    [{ x: left, y: bottom }, { x: left, y: top }],
+  ];
+  return edges.some(([c, d]) => segmentsIntersect(a, b, c, d));
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const cross = (p, q, r) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const onSegment = (p, q, r) =>
+    q.x >= Math.min(p.x, r.x) && q.x <= Math.max(p.x, r.x) &&
+    q.y >= Math.min(p.y, r.y) && q.y <= Math.max(p.y, r.y);
+  const abC = cross(a, b, c);
+  const abD = cross(a, b, d);
+  const cdA = cross(c, d, a);
+  const cdB = cross(c, d, b);
+  if (abC === 0 && onSegment(a, c, b)) return true;
+  if (abD === 0 && onSegment(a, d, b)) return true;
+  if (cdA === 0 && onSegment(c, a, d)) return true;
+  if (cdB === 0 && onSegment(c, b, d)) return true;
+  return (abC > 0) !== (abD > 0) && (cdA > 0) !== (cdB > 0);
 }
 
 function surviveHazard(player) {
@@ -716,7 +832,7 @@ function rectTouchesPlague(rect, plague, radius) {
   return points.some(([x, y]) => touchesPlague(x, y, plague, radius));
 }
 
-function handleSwitches() {
+function handleSwitches(dt = 0) {
   const { room, player } = state;
   const bodyCanPress = !(state.form === "green" && player.greenAfterimage);
   for (const s of room.switches || []) {
@@ -724,6 +840,13 @@ function handleSwitches() {
     const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
     if (body || grave) s.latched = true;
     s.pressed = body || grave || s.latched;
+  }
+  for (const s of room.repeatSwitches || []) {
+    const body = bodyCanPress && rectsOverlap(player, s);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
+    const overlapping = body || grave;
+    if (overlapping && !s.wasOverlapping) s.pressed = !s.pressed;
+    s.wasOverlapping = overlapping;
   }
   for (const s of room.leverSwitches || []) {
     const overlapping = rectsOverlap(player, s);
@@ -736,8 +859,83 @@ function handleSwitches() {
     if (s.lastSide === (s.initialSide || "right") && side === opposite) s.pressed = !s.pressed;
     s.lastSide = side;
   }
-  const open = (room.switches || []).some((s) => s.pressed) || (room.leverSwitches || []).some((s) => s.pressed);
-  for (const g of room.gates || []) g.open = open;
+  for (const trigger of room.hiddenTriggers || []) {
+    const body = bodyCanPress && rectsOverlap(player, trigger);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, trigger));
+    const overlapping = body || grave;
+    if (trigger.once && overlapping) trigger.latched = true;
+    trigger.pressed = trigger.once ? trigger.latched : overlapping;
+  }
+
+  const switchStates = new Map();
+  for (const item of [
+    ...(room.switches || []),
+    ...(room.repeatSwitches || []),
+    ...(room.leverSwitches || []),
+    ...(room.hiddenTriggers || []),
+  ]) {
+    switchStates.set(item.switchKey, Boolean(item.pressed));
+  }
+  const targetControllers = new Map();
+  for (const binding of room.controlBindings || []) {
+    const key = `${binding.switch?.x},${binding.switch?.y}`;
+    for (const target of binding.targets || []) {
+      const targetKey = target.type === "lightning" ? "lightning:main" : `cell:${target.x},${target.y}`;
+      if (!targetControllers.has(targetKey)) targetControllers.set(targetKey, []);
+      targetControllers.get(targetKey).push(Boolean(switchStates.get(key)));
+    }
+  }
+  const targetActive = (key) => {
+    const controllers = targetControllers.get(key);
+    return Boolean(controllers?.length) && controllers.every(Boolean);
+  };
+  const targetControlled = (key) => Boolean(targetControllers.get(key)?.length);
+
+  for (const gate of room.gates || []) {
+    const shouldOpen = targetActive(gate.targetKey);
+    gate.openAmount += ((shouldOpen ? 1 : 0) - gate.openAmount) * Math.min(1, dt * 8);
+    gate.open = gate.openAmount >= 0.92;
+  }
+  for (const hazard of room.hazards || []) {
+    if (hazard.type === "spike") hazard.disabled = targetActive(hazard.targetKey);
+  }
+  for (const coin of room.coins || []) {
+    coin.disabled = targetControlled(coin.targetKey) && !targetActive(coin.targetKey);
+  }
+  const lightningDisabled = targetControlled("lightning:main") && !targetActive("lightning:main");
+  room.lightningDisabled = lightningDisabled;
+  for (const segment of room.lightningSegments || []) segment.disabled = lightningDisabled;
+}
+
+function updateBreakablePlatforms(dt) {
+  const { room, player } = state;
+  for (const platform of room.breakablePlatforms || []) {
+    if (platform.broken) {
+      platform.restoreTime -= dt;
+      if (platform.restoreTime <= 0) {
+        platform.broken = false;
+        platform.standTime = 0;
+      }
+      continue;
+    }
+    const rect = transformedRect(state, platform);
+    const playerStanding = Math.abs(player.y + player.h - rect.y) <= 3 &&
+      player.x + player.w > rect.x + 2 &&
+      player.x < rect.x + rect.w - 2 &&
+      player.vy >= 0;
+    const graveStanding = player.graves.some((grave) =>
+      Math.abs(grave.y + 32 - rect.y) <= 3 &&
+      grave.x + 28 > rect.x + 2 &&
+      grave.x < rect.x + rect.w - 2
+    );
+    const standing = playerStanding || graveStanding;
+    platform.standTime = standing ? platform.standTime + dt : Math.max(0, platform.standTime - dt * 2);
+    if (platform.standTime >= 2) {
+      platform.broken = true;
+      platform.restoreTime = 8;
+      platform.standTime = 0;
+    }
+  }
 }
 
 function leverSide(player, lever) {
@@ -762,6 +960,7 @@ function handleCheckpoints() {
       roomIndex: state.roomIndex,
       x: cp.x + cp.w / 2 - player.w / 2,
       y: cp.y + cp.h - player.h,
+      key: `checkpoint:${room.id}:${cp.x},${cp.y}`,
       form: state.form,
       helmetOwned: state.helmetOwned,
       unlockedForms: [...state.unlockedForms],
@@ -786,7 +985,11 @@ function handleEnemies() {
     } else if (blackStomp) {
       enemy.alive = false;
       player.vy = Math.min(player.vy, -360);
-    } else if (player.rollTimer <= 0) {
+    } else if (player.rollTimer > 0) {
+      refreshRoll(player);
+    } else if (protectSideHazard(player, rectHazardSide(player, enemy))) {
+      continue;
+    } else {
       respawn("enemy");
       return;
     }
@@ -814,7 +1017,28 @@ function expandedRollRect(player) {
 
 function refreshRoll(player) {
   player.rollCooldown = 0;
-  player.rollRefreshQueued = true;
+  if (player.rollRefreshSoundCooldown <= 0) {
+    player.rollRefreshSoundCooldown = ROLL_REFRESH_SOUND_INTERVAL;
+    player.rollRefreshQueued = true;
+  }
+}
+
+function updateEnemyPatrols(dt) {
+  for (const enemy of state.room.enemies || []) {
+    if (!enemy.alive || !enemy.patrol?.axis) continue;
+    const patrol = enemy.patrol;
+    const axis = patrol.axis;
+    enemy[axis] += patrol.direction * patrol.speed * dt;
+    const min = axis === "x" ? patrol.minX : patrol.minY;
+    const max = axis === "x" ? patrol.maxX : patrol.maxY;
+    if (enemy[axis] <= min) {
+      enemy[axis] = min;
+      patrol.direction = 1;
+    } else if (enemy[axis] >= max) {
+      enemy[axis] = max;
+      patrol.direction = -1;
+    }
+  }
 }
 
 function playRollRefresh() {
@@ -836,17 +1060,17 @@ function playRollRefresh() {
 function handleRoomEdges() {
   const { player } = state;
   if (state.overallPlaytest) {
-    if (player.x <= 0) {
+    if (player.x <= 0 && player.vx < 0) {
       if (!changeRoom("l")) player.x = 0;
-    } else if (player.x + player.w >= WIDTH) {
+    } else if (player.x + player.w >= WIDTH && player.vx > 0) {
       if (!changeRoom("r")) player.x = WIDTH - player.w;
     }
-    if (player.y <= 0) {
+    if (player.y <= 0 && player.vy < 0) {
       if (!changeRoom("u")) {
         player.y = 0;
         player.vy = Math.max(0, player.vy);
       }
-    } else if (player.y + player.h >= HEIGHT) {
+    } else if (player.y + player.h >= HEIGHT && player.vy > 0) {
       if (!changeRoom("d")) {
         player.y = HEIGHT - player.h;
         player.vy = Math.min(0, player.vy);

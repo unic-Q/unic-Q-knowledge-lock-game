@@ -26,16 +26,16 @@ export const ROLL_UP = 120;
 export const ROLL_TIME = 0.34;
 export const ROLL_COOLDOWN = 0.82;
 export const ROLL_HAZARD_PAD = 0.1;
-
-export const NONE_DASH_SPEED = 620;
-export const NONE_DASH_TIME = 0.16;
-export const NONE_DASH_COOLDOWN = 0.32;
+export const ROLL_REFRESH_SOUND_INTERVAL = 0.2;
+export const WALL_TOUCH_RANGE = 8;
+export const SIDE_HAZARD_GRACE = 0.1;
 
 export const RED_DASH_DISTANCE = TILE * 4;
 export const RED_DASH_TIME = 0.22;
 export const RED_QTE_TIME = 0.28;
 export const RED_QTE_READY = 0.45;
 export const RED_KILL_QTE_BONUS = 0.18;
+export const RED_AIR_GRAVITY_SCALE = 0.16;
 
 export const WHITE_SURFACE_SPEED = TILE * 5;
 export const WHITE_PLAGUE_SPEED = TILE * 8;
