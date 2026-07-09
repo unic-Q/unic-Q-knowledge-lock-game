@@ -143,6 +143,58 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
   };
 }
 
+function linksFromMapPositions(rooms, positions) {
+  const links = Object.fromEntries(rooms.map((room) => [String(room.id), {}]));
+  const entries = rooms
+    .map((room) => ({ id: room.id, ...(positions?.[String(room.id)] || {}) }))
+    .filter((room) => Number.isFinite(room.x) && Number.isFinite(room.y));
+  if (!entries.length) return links;
+
+  const tolerance = 8;
+  const maxGap = 150;
+
+  for (const room of entries) {
+    const candidates = { l: [], r: [], u: [], d: [] };
+    for (const other of entries) {
+      if (room.id === other.id) continue;
+      const dx = other.x - room.x;
+      const dy = other.y - room.y;
+      if (Math.abs(dy) <= tolerance && dx > 0 && dx <= maxGap) candidates.r.push({ id: other.id, gap: dx });
+      if (Math.abs(dy) <= tolerance && dx < 0 && -dx <= maxGap) candidates.l.push({ id: other.id, gap: -dx });
+      if (Math.abs(dx) <= tolerance && dy > 0 && dy <= maxGap) candidates.d.push({ id: other.id, gap: dy });
+      if (Math.abs(dx) <= tolerance && dy < 0 && -dy <= maxGap) candidates.u.push({ id: other.id, gap: -dy });
+    }
+    for (const dir of ["l", "r", "u", "d"]) {
+      candidates[dir].sort((a, b) => a.gap - b.gap);
+      if (candidates[dir][0]) links[String(room.id)][dir] = candidates[dir][0].id;
+    }
+  }
+  return links;
+}
+
+async function loadExportedWorld() {
+  const response = await fetch("/api/exported-levels", { cache: "no-store" });
+  if (!response.ok) return false;
+  const payload = await response.json();
+  if (!payload?.ok || !Array.isArray(payload.rooms) || !payload.rooms.length) return false;
+
+  const rooms = payload.rooms.map((room, index) => normalizePlaytestRoom({
+    ...room,
+    id: room.id ?? room.room ?? index + 1,
+    name: room.name || `${String(room.id ?? room.room ?? index + 1).padStart(2, "0")} / 导出关卡`,
+  }, index + 1));
+  const generatedLinks = linksFromMapPositions(rooms, payload.map?.positions);
+  for (const room of rooms) {
+    room.links = Object.keys(room.links || {}).length ? room.links : generatedLinks[String(room.id)] || {};
+  }
+  rooms.sort((a, b) => a.id - b.id);
+  state.worldRooms = rooms;
+  state.roomIndexById = new Map(rooms.map((room, index) => [room.id, index]));
+  state.overallPlaytest = true;
+  loadRoom(0);
+  return true;
+}
+
 function respawn(reason = "unknown") {
   logEvent("respawn", { reason });
   state.lastRespawn = reason;
@@ -830,16 +882,20 @@ window.addEventListener("keydown", (event) => {
 });
 window.addEventListener("keyup", (event) => keys.delete(event.code));
 
-try {
-  if (!setupEditorWorldPlaytest() && !setupEditorPlaytest()) loadRoom(0);
-} catch (error) {
-  console.error("Playtest data failed to load", error);
-  state.worldRooms = worldRooms;
-  state.roomIndexById = new Map(worldRooms.map((room, index) => [room.id, index]));
-  state.overallPlaytest = false;
-  state.form = "none";
-  state.helmetOwned = false;
-  state.unlockedForms = new Set();
-  loadRoom(0);
+async function bootstrap() {
+  try {
+    if (!setupEditorWorldPlaytest() && !setupEditorPlaytest() && !await loadExportedWorld()) loadRoom(0);
+  } catch (error) {
+    console.error("Game data failed to load", error);
+    state.worldRooms = worldRooms;
+    state.roomIndexById = new Map(worldRooms.map((room, index) => [room.id, index]));
+    state.overallPlaytest = false;
+    state.form = "none";
+    state.helmetOwned = false;
+    state.unlockedForms = new Set();
+    loadRoom(0);
+  }
+  requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+
+bootstrap();
