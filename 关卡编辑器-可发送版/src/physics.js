@@ -49,6 +49,15 @@ export function activeBlocks(state) {
   return out;
 }
 
+export function whiteSurfaceBlocks(state) {
+  const out = [...activeBlocks(state)];
+  for (const p of state.room?.platforms || []) {
+    if (p.dead) continue;
+    out.push(transformedRect(state, p));
+  }
+  return out;
+}
+
 export function isGroundedNow(state) {
   const { player, room } = state;
   const foot = { x: player.x + 3, y: player.y + player.h, w: player.w - 6, h: 3 };
@@ -136,7 +145,7 @@ export function findWhiteSurface(state) {
   const footHalf = player.w / 2;
   const bodyHalf = player.h / 2;
   let best = null;
-  for (const b of activeBlocks(state)) {
+  for (const b of whiteSurfaceBlocks(state)) {
     const faces = [
       { nx: 0, ny: -1, d: Math.abs(cy - (b.y - bodyHalf)), ok: cx >= b.x - footHalf - WHITE_SNAP && cx <= b.x + b.w + footHalf + WHITE_SNAP },
       { nx: 0, ny: 1, d: Math.abs(cy - (b.y + b.h + bodyHalf)), ok: cx >= b.x - footHalf - WHITE_SNAP && cx <= b.x + b.w + footHalf + WHITE_SNAP },
@@ -175,7 +184,7 @@ export function snapWhiteToSurface(player, surface) {
 
 export function resolveWhiteOverlap(state) {
   const { player } = state;
-  for (const b of activeBlocks(state)) {
+  for (const b of whiteSurfaceBlocks(state)) {
     if (!rectsOverlap(player, b)) continue;
     const leftPen = player.x + player.w - b.x;
     const rightPen = b.x + b.w - player.x;

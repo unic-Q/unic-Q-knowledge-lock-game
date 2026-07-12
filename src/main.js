@@ -1263,7 +1263,7 @@ function updateMovingPlatforms(dt) {
     const dy = platform.y - previous.y;
     platform.lastDx = dx;
     platform.lastDy = dy;
-    if (rider) {
+    if (rider || isWhiteAttachedTo(player, platform)) {
       player.x += dx;
       player.y += dy;
     }
@@ -1528,7 +1528,7 @@ function updateFallingObjects(dt) {
     const dy = object.y - previous.y;
     object.lastDx = dx;
     object.lastDy = dy;
-    if ((object.kind === "platform" || object.kind === "breakable") && isStandingOn(player, previous)) {
+    if ((object.kind === "platform" || object.kind === "breakable") && (isStandingOn(player, previous) || isWhiteAttachedTo(player, object))) {
       player.x += dx;
       player.y += dy;
     }
@@ -1550,6 +1550,10 @@ function findCarrierPlatform(object) {
     if (rectsOverlap(foot, block)) return { ...block, lastDx: 0, lastDy: 0 };
   }
   return null;
+}
+
+function isWhiteAttachedTo(player, block) {
+  return state.form === "white" && player.whiteSurface?.block === block;
 }
 
 function isStandingOn(actor, platform) {

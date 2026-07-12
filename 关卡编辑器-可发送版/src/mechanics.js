@@ -8,7 +8,7 @@ import {
   WHITE_SNAP, ERODE_RATE, ERODE_FAST, WALL_TOUCH_RANGE,
 } from "./constants.js";
 import {
-  activeBlocks, findWhiteSurface, rectsOverlap,
+  activeBlocks, findWhiteSurface, rectsOverlap, whiteSurfaceBlocks,
   transformedRect, isGroundedNow, rotatePoint,
 } from "./physics.js";
 
@@ -171,7 +171,7 @@ function findSameFaceContinuation(state, surface, edgeCoord, edgeIsMax) {
   const face = surface.face;
   const normal = normalFromFace(face);
   const { player } = state;
-  for (const block of activeBlocks(state)) {
+  for (const block of whiteSurfaceBlocks(state)) {
     if (block === surface.block) continue;
     const candidate = normalizeWhiteSurface({ block, face, nx: normal.nx, ny: normal.ny });
     const limits = whiteCenterLimits(player, candidate);
@@ -192,7 +192,7 @@ function findInnerCornerSurface(state, surface, dir) {
   const cx = state.player.x + state.player.w / 2;
   const cy = state.player.y + state.player.h / 2;
   const probe = { x: cx + tx * 10 - surface.nx * 8, y: cy + ty * 10 - surface.ny * 8, w: 2, h: 2 };
-  const block = activeBlocks(state).find((b) => b !== surface.block && rectsOverlap(probe, b));
+  const block = whiteSurfaceBlocks(state).find((b) => b !== surface.block && rectsOverlap(probe, b));
   if (!block) return null;
   const nextNormal = { nx: -tx, ny: -ty };
   if (!isWhiteFaceExposed(state, block, nextNormal)) return null;
@@ -209,7 +209,7 @@ function isWhiteFaceExposed(state, block, normal) {
     w: normal.nx === 0 ? size : size,
     h: normal.ny === 0 ? size : size,
   };
-  return !activeBlocks(state).some((other) => other !== block && rectsOverlap(probe, other));
+  return !whiteSurfaceBlocks(state).some((other) => other !== block && rectsOverlap(probe, other));
 }
 
 function exteriorCornerSurface(surface, edgeIsMax) {
@@ -512,7 +512,7 @@ function shootWhiteHook(state, aimBias) {
   let end = { x: sx + dx * WHITE_HOOK_RANGE, y: sy + dy * WHITE_HOOK_RANGE, hit: false, surface: null };
   for (let d = 0; d < WHITE_HOOK_RANGE; d += 8) {
     const point = { x, y, w: 2, h: 2 };
-    const block = activeBlocks(state).find((b) => rectsOverlap(point, b));
+    const block = whiteSurfaceBlocks(state).find((b) => rectsOverlap(point, b));
     if (block) {
       end = { x, y, hit: true, surface: hookHitSurface(block, x, y) };
       break;
