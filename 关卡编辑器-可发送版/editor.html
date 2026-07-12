@@ -252,6 +252,7 @@
       { char: '~', name: '闪电链桩', category: '表面', color: '#8ee6ff', desc: '依次点击格子表面放置端点并连接闪电链' },
       { char: '!', name: '尖刺', category: '危险', color: '#9c3038', desc: '伤害陷阱，可被开关控制' },
       { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '拖动设置直线巡逻敌人' },
+      { char: 'Z', name: 'Boss', category: '危险', color: '#49364f', desc: '3x3悬浮Boss（字符为左上锚点）' },
       { char: 'N', name: '高级敌人', category: '危险', color: '#7d3f7d', desc: '点选路径点，完成后设置大小和速度' },
       { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
       { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
@@ -1031,6 +1032,15 @@
               ctx.fillStyle = '#f4c95d';
               ctx.fillRect(px + 8, py + 10, 4, 4);
               ctx.fillRect(px + TILE - 12, py + 10, 4, 4);
+            } else if (char === 'Z') {
+              ctx.fillStyle = '#49364f';
+              ctx.fillRect(px, py, TILE * 3, TILE * 3);
+              ctx.strokeStyle = '#f4c95d';
+              ctx.lineWidth = 3;
+              ctx.strokeRect(px + 1.5, py + 1.5, TILE * 3 - 3, TILE * 3 - 3);
+              ctx.fillStyle = '#ffcf68';
+              ctx.fillRect(px + 19, py + 28, 12, 10);
+              ctx.fillRect(px + TILE * 3 - 31, py + 28, 12, 10);
             } else if (char === 'K') {
               ctx.fillStyle = '#d6c08a';
               ctx.fillRect(px + 4, py + TILE * 0.68, TILE - 8, TILE * 0.32);
@@ -1129,7 +1139,16 @@
       if (cursorX >= 0 && cursorY >= 0) {
         ctx.strokeStyle = '#f4c95d';
         ctx.lineWidth = 2;
-        ctx.strokeRect(cursorX * TILE + 1, cursorY * TILE + 1, TILE - 2, TILE - 2);
+        if (currentChar === 'Z') {
+          ctx.save();
+          ctx.globalAlpha = 0.45;
+          ctx.fillStyle = '#8d668f';
+          ctx.fillRect(cursorX * TILE, cursorY * TILE, TILE * 3, TILE * 3);
+          ctx.restore();
+          ctx.strokeRect(cursorX * TILE + 1, cursorY * TILE + 1, TILE * 3 - 2, TILE * 3 - 2);
+        } else {
+          ctx.strokeRect(cursorX * TILE + 1, cursorY * TILE + 1, TILE - 2, TILE - 2);
+        }
       }
     }
 
@@ -1706,6 +1725,27 @@
     }
 
     function placeCell(x, y, char, fillRow = false, fillCol = false) {
+      if (char === 'Z') {
+        if (x + 2 >= COLS || y + 2 >= ROWS) {
+          alert('Boss 的3x3区域不能超出房间边界。');
+          return;
+        }
+        for (let yy = y; yy <= y + 2; yy += 1) {
+          for (let xx = x; xx <= x + 2; xx += 1) {
+            if (grid[yy][xx] !== '.' && grid[yy][xx] !== 'Z') {
+              alert('Boss 的3x3区域必须全部为空。');
+              return;
+            }
+          }
+        }
+        for (let yy = 0; yy < ROWS; yy += 1) {
+          for (let xx = 0; xx < COLS; xx += 1) {
+            if (grid[yy][xx] === 'Z') grid[yy][xx] = '.';
+          }
+        }
+        fillRow = false;
+        fillCol = false;
+      }
       const setOne = (cx, cy) => {
         enemyPatrols = enemyPatrols.filter(patrol => patrol.start.x !== cx || patrol.start.y !== cy);
         advancedEnemies = advancedEnemies.filter(enemy => !(enemy.path || []).some(point => point.x === cx && point.y === cy));

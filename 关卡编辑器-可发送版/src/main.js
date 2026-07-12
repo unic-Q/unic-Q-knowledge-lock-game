@@ -46,6 +46,8 @@ const state = {
   shake: 0,
   raisedFlags: new Set(),
   collectedCoins: new Set(),
+  defeatedBossRooms: new Set(),
+  clearedBossRooms: new Set(),
   checkpoint: { roomIndex: 0, x: 70, y: ROOM_FLOOR * TILE - 28, form: "none", helmetOwned: false, unlockedForms: [], worldRot: 0 },
   lastRespawn: "none",
   eventLog: [],
@@ -86,6 +88,7 @@ function inputState() {
 function loadRoom(index, spawn) {
   state.roomIndex = Math.max(0, Math.min(index, state.worldRooms.length - 1));
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  applyBossRoomProgress();
   canvas.width = state.room.width || WIDTH;
   canvas.height = state.room.height || HEIGHT;
   state.visitedRooms.add(state.room.id);
@@ -270,6 +273,7 @@ function respawn(reason = "unknown") {
   state.lastRespawn = reason;
   state.roomIndex = state.checkpoint.roomIndex;
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  applyBossRoomProgress(true);
   state.helmetOwned = state.checkpoint.helmetOwned;
   state.unlockedForms = new Set(state.checkpoint.unlockedForms || []);
   state.form = state.checkpoint.form;
@@ -647,6 +651,7 @@ function update(dt) {
   else if (state.form === "green") updateGreen(state, input, dt);
   else if (state.form === "black") updateBlack(state, input, dt);
 
+  updateBoss(dt);
   handleSwitches(dt);
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
@@ -661,6 +666,7 @@ function update(dt) {
   handleEnemies();
   activateCheckpoint();
   handleHazards();
+  handleBossHazards();
   handleRoomEdges();
 
   const roomSize = currentRoomSize();
@@ -878,6 +884,182 @@ function projectileIgnoredByForm(projectile) {
   return false;
 }
 
+function applyBossRoomProgress(respawning = false) {
+  const { room } = state;
+  if (!room?.bosses?.length) return;
+  const defeated = state.defeatedBossRooms.has(room.id);
+  const cleared = state.clearedBossRooms.has(room.id);
+  if (defeated) {
+    room.bosses.length = 0;
+    room.bossBattleStarted = true;
+  } else if (respawning) {
+    const boss = room.bosses[0];
+    boss.state = "intro";
+    boss.timer = 1.5;
+    room.bossBattleStarted = true;
+  }
+  room.bossDefeated = defeated;
+  room.bossCleared = cleared;
+  room.finalSwitchArmed = false;
+  for (const gate of room.gates || []) {
+    if (cleared) gate.openAmount = 1;
+  }
+}
+
+function bossBody(boss) {
+  return { x: boss.x + 6, y: boss.y + 6, w: boss.w - 12, h: boss.h - 12 };
+}
+
+function bossObstacles() {
+  return [
+    ...(state.room.blocks || []).filter((b) => !b.broken),
+    ...(state.room.cracks || []).filter((b) => !b.broken),
+    ...(state.room.erode || []).filter((b) => !b.broken),
+    ...(state.room.gates || []).filter((g) => !g.open || g.openAmount < 0.95),
+  ];
+}
+
+function bossCanMove(boss, dx, dy) {
+  const test = bossBody({ ...boss, x: boss.x + dx, y: boss.y + dy });
+  return !bossObstacles().some((block) => rectsOverlap(test, block));
+}
+
+function chooseBossDirection(boss) {
+  const player = state.player;
+  const px = player.x + player.w / 2;
+  const py = player.y + player.h / 2;
+  const bx = boss.x + boss.w / 2;
+  const by = boss.y + boss.h / 2;
+  let dx = px - bx;
+  let dy = py - by;
+  let length = Math.hypot(dx, dy) || 1;
+  dx /= length;
+  dy /= length;
+  const clearDistance = (ux, uy) => {
+    let distance = 0;
+    while (distance < TILE * 18 && bossCanMove(boss, ux * (distance + TILE / 4), uy * (distance + TILE / 4))) distance += TILE / 4;
+    return distance;
+  };
+  if (clearDistance(dx, dy) < TILE * 2) {
+    const directions = [];
+    for (let sy = -1; sy <= 1; sy += 1) {
+      for (let sx = -1; sx <= 1; sx += 1) {
+        if (!sx && !sy) continue;
+        const n = Math.hypot(sx, sy);
+        const ux = sx / n;
+        const uy = sy / n;
+        directions.push({ ux, uy, distance: clearDistance(ux, uy), alignment: ux * dx + uy * dy });
+      }
+    }
+    directions.sort((a, b) => b.distance - a.distance || b.alignment - a.alignment);
+    dx = directions[0].ux;
+    dy = directions[0].uy;
+  }
+  boss.aimX = dx;
+  boss.aimY = dy;
+}
+
+function startBossAim(boss) {
+  chooseBossDirection(boss);
+  boss.state = "aim";
+  boss.timer = [0.75, 0.9, 1.05][Math.max(0, boss.hp - 1)];
+  boss.shotFired = false;
+}
+
+function fireBossProjectile(boss) {
+  const player = state.player;
+  const dx = player.x + player.w / 2 - (boss.x + boss.w / 2);
+  const dy = player.y + player.h / 2 - (boss.y + boss.h / 2);
+  const length = Math.hypot(dx, dy) || 1;
+  const speed = [6, 5.5, 5][Math.max(0, boss.hp - 1)] * TILE;
+  const size = TILE * 0.55;
+  state.room.projectiles.push({
+    x: boss.x + boss.w / 2 - size / 2,
+    y: boss.y + boss.h / 2 - size / 2,
+    w: size,
+    h: size,
+    vx: dx / length * speed,
+    vy: dy / length * speed,
+    speed,
+    hazard: "spike",
+    trackingTime: [1.1, 0.9, 0.7][Math.max(0, boss.hp - 1)],
+    life: 8,
+    source: "boss",
+  });
+}
+
+function defeatBoss(boss) {
+  const room = state.room;
+  state.defeatedBossRooms.add(room.id);
+  room.bossDefeated = true;
+  room.bosses = [];
+  for (const emitter of room.emitters || []) emitter.disabled = true;
+  room.projectiles = [];
+  room.finalSwitchArmed = false;
+  state.shake = 12;
+}
+
+function updateBoss(dt) {
+  const { room, player } = state;
+  const boss = room.bosses?.[0];
+  if (!boss) return;
+  boss.hitFlash = Math.max(0, boss.hitFlash - dt);
+  const triggerActive = (room.hiddenTriggers || []).some((t) => t.once && t.pressed);
+  if (boss.state === "waiting" && triggerActive) {
+    room.bossBattleStarted = true;
+    player.graves = [];
+    player.plague = [];
+    player.hook = null;
+    player.greenAfterimage = false;
+    boss.state = "intro";
+    boss.timer = 1.5;
+  }
+  if (boss.state === "waiting") return;
+  boss.timer -= dt;
+  if (boss.state === "intro" && boss.timer <= 0) startBossAim(boss);
+  else if (boss.state === "aim" && boss.timer <= 0) {
+    const speed = [10, 9, 8][Math.max(0, boss.hp - 1)] * TILE;
+    boss.vx = boss.aimX * speed;
+    boss.vy = boss.aimY * speed;
+    boss.chargeDistance = 0;
+    boss.state = "charge";
+  } else if (boss.state === "charge") {
+    let distance = Math.hypot(boss.vx, boss.vy) * dt;
+    while (distance > 0) {
+      const step = Math.min(TILE / 4, distance);
+      const speed = Math.hypot(boss.vx, boss.vy) || 1;
+      const mx = boss.vx / speed * step;
+      const my = boss.vy / speed * step;
+      if (!bossCanMove(boss, mx, my)) {
+        boss.state = "recover";
+        boss.timer = 0.85;
+        break;
+      }
+      boss.x += mx;
+      boss.y += my;
+      boss.chargeDistance += step;
+      distance -= step;
+      if (boss.chargeDistance >= TILE * 18) {
+        boss.state = "recover";
+        boss.timer = 0.85;
+        break;
+      }
+    }
+  } else if (boss.state === "recover") {
+    if (!boss.shotFired && boss.timer <= 0.55 && (room.projectiles || []).filter((p) => p.source === "boss").length < 3) {
+      fireBossProjectile(boss);
+      boss.shotFired = true;
+    }
+    if (boss.timer <= 0) startBossAim(boss);
+  }
+}
+
+function handleBossHazards() {
+  const boss = state.room.bosses?.[0];
+  if (!boss || boss.state === "waiting" || boss.state === "intro") return;
+  if (rectsOverlap(state.player, bossBody(boss))) surviveHazard(state.player);
+}
+
 function updateEmitters(dt) {
   const { room, player } = state;
   room.projectiles ||= [];
@@ -894,11 +1076,27 @@ function updateEmitters(dt) {
     projectile.y += projectile.vy * dt;
     projectile.life -= dt;
     if (activeBlocks(state).some((block) => rectsOverlap(projectile, block))) projectile.life = 0;
+    const boss = room.bosses?.[0];
+    if (boss && projectile.source === "emitter" && !boss.spentEmitters.has(projectile.sourceEmitterIndex) && rectsOverlap(projectile, bossBody(boss))) {
+      boss.spentEmitters.add(projectile.sourceEmitterIndex);
+      boss.hp -= 1;
+      boss.hitFlash = 0.25;
+      boss.state = "recover";
+      boss.timer = 1.4;
+      boss.shotFired = false;
+      projectile.life = 0;
+      room.projectiles.forEach((p) => {
+        if (p.sourceEmitterIndex === projectile.sourceEmitterIndex) p.life = 0;
+      });
+      if (boss.hp <= 0) defeatBoss(boss);
+    }
   }
   room.projectiles = room.projectiles.filter((p) => p.life > 0);
   for (const emitter of room.emitters || []) {
     updatePathMover(emitter, dt);
     if (emitter.disabled) continue;
+    const bossEmitter = Boolean(room.bosses?.length || room.bossDefeated);
+    if (bossEmitter && (room.bosses?.[0]?.spentEmitters.has(emitter.index) || room.projectiles.some((p) => p.sourceEmitterIndex === emitter.index))) continue;
     emitter.timer = (emitter.timer || 0) + dt;
     const period = Math.max(0.2, emitter.period || 2);
     const activeWindow = period * Math.max(0.05, Math.min(1, emitter.duty || 0.35));
@@ -922,6 +1120,8 @@ function updateEmitters(dt) {
       hazard: emitter.hazard || "spike",
       trackingTime: Math.max(0, Math.min(3, Number(emitter.trackingTime || 0))),
       life: 8,
+      source: "emitter",
+      sourceEmitterIndex: emitter.index,
     });
   }
 }
@@ -1086,8 +1286,19 @@ function handleSwitches(dt = 0) {
   for (const s of room.switches || []) {
     const body = bodyCanPress && rectsOverlap(player, s);
     const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
-    if (body || grave) s.latched = true;
-    s.pressed = body || grave || s.latched;
+    const isFinalBossSwitch = room.bossRoom && s.switchKey === "8,38";
+    if (isFinalBossSwitch) {
+      if (room.bossDefeated && !body) room.finalSwitchArmed = true;
+      if (room.bossDefeated && room.finalSwitchArmed && body) {
+        s.latched = true;
+        room.bossCleared = true;
+        state.clearedBossRooms.add(room.id);
+      }
+      s.pressed = Boolean(s.latched);
+    } else {
+      if (body || grave) s.latched = true;
+      s.pressed = body || grave || s.latched;
+    }
   }
   for (const s of room.repeatSwitches || []) {
     const body = bodyCanPress && rectsOverlap(player, s);
@@ -1148,7 +1359,18 @@ function handleSwitches(dt = 0) {
   };
 
   for (const gate of room.gates || []) {
-    const shouldOpen = targetActive(gate.targetKey);
+    let shouldOpen = targetActive(gate.targetKey);
+    if (room.bossRoom) {
+      const gx = Math.floor(gate.x / TILE);
+      const gy = Math.floor(gate.y / TILE);
+      const bossGate = (gx === 38 && gy >= 8 && gy <= 11) || (gy === 38 && gx >= 4 && gx <= 7);
+      if (bossGate) shouldOpen = room.bossCleared || (!room.bossBattleStarted && gx === 38);
+      if (bossGate && room.bossBattleStarted && !room.bossCleared) {
+        gate.openAmount = 0;
+        gate.open = false;
+        continue;
+      }
+    }
     gate.openAmount += ((shouldOpen ? 1 : 0) - gate.openAmount) * Math.min(1, dt * 8);
     gate.open = shouldOpen || gate.openAmount > 0.001;
   }
@@ -1166,7 +1388,7 @@ function handleSwitches(dt = 0) {
     segment.disabled = !targetEnabled(segment.targetKey, true);
   }
   for (const emitter of room.emitters || []) {
-    emitter.disabled = !targetEnabled(emitter.targetKey, true);
+    emitter.disabled = room.bossDefeated || !targetEnabled(emitter.targetKey, true);
   }
 }
 

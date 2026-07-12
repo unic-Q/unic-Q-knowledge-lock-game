@@ -67,15 +67,18 @@ export function moveAxis(state, axis, dt) {
       if (amount > 0) player.x = b.x - player.w;
       if (amount < 0) player.x = b.x + b.w;
       player.vx = 0;
+      if (state.form === "red" && player.redDash) player.redDash = null;
     } else if (amount > 0) {
       player.y = b.y - player.h;
       player.vy = 0;
+      if (state.form === "red" && player.redDash) player.redDash = null;
       player.onGround = true;
       player.jumps = 0;
       player.coyote = 0.1;
     } else if (amount < 0) {
       player.y = b.y + b.h;
       player.vy = 0;
+      if (state.form === "red" && player.redDash) player.redDash = null;
     }
   }
   if (axis === "y" && player.dropTimer <= 0 && state.form !== "black") {
@@ -87,11 +90,13 @@ export function moveAxis(state, axis, dt) {
       if (amount >= 0 && face === "up" && wasAbove && rectsOverlap(player, b)) {
         player.y = b.y - player.h;
         player.vy = 0;
+        if (state.form === "red" && player.redDash) player.redDash = null;
         player.onGround = true;
         player.jumps = 0;
       } else if (amount < 0 && face === "down" && wasBelow && rectsOverlap(player, b)) {
         player.y = b.y + b.h;
         player.vy = 0;
+        if (state.form === "red" && player.redDash) player.redDash = null;
       }
     }
   }
@@ -104,9 +109,11 @@ export function moveAxis(state, axis, dt) {
       if (amount > 0 && face === "left" && wasLeft && rectsOverlap(player, b)) {
         player.x = b.x - player.w;
         player.vx = 0;
+        if (state.form === "red" && player.redDash) player.redDash = null;
       } else if (amount < 0 && face === "right" && wasRight && rectsOverlap(player, b)) {
         player.x = b.x + b.w;
         player.vx = 0;
+        if (state.form === "red" && player.redDash) player.redDash = null;
       }
     }
   }

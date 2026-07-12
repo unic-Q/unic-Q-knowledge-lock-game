@@ -497,6 +497,7 @@ export function parseRoom(data) {
   const abilityPickups = [];
   const coins = [];
   const hiddenTriggers = [];
+  const bosses = [];
   const emitters = (data.emitters || []).map((item, index) => ({
     index,
     x: Number(item.x || 0) * TILE,
@@ -540,6 +541,22 @@ export function parseRoom(data) {
       if (cell === "!") hazards.push({ ...b, type: "spike", targetKey: `cell:${x},${y}`, disabled: false });
       if (cell === "~") hazards.push({ ...b, type: "electric" });
       if (cell === "M") enemies.push({ x: b.x + 4, y: b.y + 7, w: TILE - 8, h: TILE - 7, alive: true });
+      if (cell === "Z") bosses.push({
+        x: b.x,
+        y: b.y,
+        w: TILE * 3,
+        h: TILE * 3,
+        hp: 3,
+        maxHp: 3,
+        state: "waiting",
+        timer: 0,
+        chargeDistance: 0,
+        vx: 0,
+        vy: 0,
+        shotFired: false,
+        hitFlash: 0,
+        spentEmitters: new Set(),
+      });
       if (cell === "K") switches.push({ x: b.x + 4, y: b.y + TILE * 0.68, w: TILE - 8, h: TILE * 0.32, pressed: false, latched: false });
       if (cell === "S") {
         repeatSwitches.push({
@@ -714,6 +731,8 @@ export function parseRoom(data) {
     plagueHazards,
     hazards,
     enemies,
+    bosses,
+    bossRoom: bosses.length > 0,
     switches,
     repeatSwitches,
     leverSwitches,

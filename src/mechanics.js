@@ -71,7 +71,8 @@ export function updateWhite(state, input, dt) {
   const { player } = state;
   if (updateWhiteHookPull(state, input.upHeld, dt)) return;
 
-  const surface = findWhiteSurface(state);
+  const rememberedSurface = normalizeWhiteSurface(player.whiteSurface);
+  const surface = isWhiteSurfaceUsable(player, rememberedSurface) ? rememberedSurface : findWhiteSurface(state);
   if (surface) {
     const previousSurface = player.whiteSurface;
     const previousBody = { x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague };
@@ -453,7 +454,7 @@ export function updateRed(state, input, dt) {
     player.redQte.t += dt;
     player.vx = 0;
     player.vy += GRAVITY * RED_AIR_GRAVITY_SCALE * dt;
-    if (player.redQte.t > RED_QTE_TIME) {
+    if (player.redQte.t > RED_QTE_TIME * 1.2) {
       redBurnout(state);
       return;
     }

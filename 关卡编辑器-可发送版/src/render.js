@@ -236,6 +236,35 @@ function drawGate(ctx, g) {
   drawRect(ctx, { ...g, y: g.y + (g.h - h) / 2, h }, `rgba(60,74,86,${1 - amount * 0.7})`, "#f4c95d");
 }
 
+function drawBoss(ctx, boss) {
+  ctx.save();
+  const flash = boss.hitFlash > 0;
+  ctx.fillStyle = flash ? "#fff3cf" : boss.state === "aim" ? "#c05252" : "#49364f";
+  ctx.strokeStyle = "#17121c";
+  ctx.lineWidth = 4;
+  ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+  ctx.strokeRect(boss.x + 2, boss.y + 2, boss.w - 4, boss.h - 4);
+  ctx.fillStyle = "#ffcf68";
+  ctx.fillRect(boss.x + 19, boss.y + 28, 12, 10);
+  ctx.fillRect(boss.x + boss.w - 31, boss.y + 28, 12, 10);
+  ctx.fillStyle = "#151820";
+  ctx.fillRect(boss.x + 16, boss.y - 14, boss.w - 32, 7);
+  for (let i = 0; i < boss.maxHp; i += 1) {
+    ctx.fillStyle = i < boss.hp ? "#d34b4b" : "#4a4148";
+    ctx.fillRect(boss.x + 18 + i * 20, boss.y - 13, 16, 5);
+  }
+  if (boss.state === "aim") {
+    ctx.strokeStyle = "rgba(217,91,66,0.85)";
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(boss.x + boss.w / 2, boss.y + boss.h / 2);
+    ctx.lineTo(boss.x + boss.w / 2 + (boss.aimX || 0) * TILE * 18, boss.y + boss.h / 2 + (boss.aimY || 0) * TILE * 18);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 function drawLightning(ctx, segment, state) {
   if (segment.disabled) return;
   const a = rotatePoint(segment.ax, segment.ay, state.worldRot);
@@ -448,6 +477,7 @@ export function draw(ctx, state) {
   for (const h of room.hazards || []) if (!h.disabled) drawHazard(ctx, transformedRect(state, h));
   for (const emitter of room.emitters || []) drawEmitter(ctx, emitter, state);
   for (const projectile of room.projectiles || []) drawProjectile(ctx, projectile);
+  for (const boss of room.bosses || []) drawBoss(ctx, boss);
   for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
   const lightningDisabled = Boolean(room.lightningDisabled);
   if (!lightningDisabled) {
@@ -463,7 +493,10 @@ export function draw(ctx, state) {
       ctx.fill();
     }
   }
-  for (const s of room.switches || []) drawSwitch(ctx, s);
+  for (const s of room.switches || []) {
+    if (room.bossRoom && s.switchKey === "8,38" && !room.bossDefeated) continue;
+    drawSwitch(ctx, s);
+  }
   for (const s of room.repeatSwitches || []) drawSwitch(ctx, s);
   for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, s);
   for (const f of room.checkpoints || []) {
@@ -572,28 +605,38 @@ function drawVisitedMap(ctx, state) {
   ctx.save();
   ctx.fillStyle = "rgba(16,20,27,0.78)";
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  const cardW = 112;
-  const cardH = 72;
+  const cardW = 116;
+  const cardH = 104;
   const gap = 12;
   const cols = 5;
   const startX = 58;
   const startY = 48;
+  const layout = mapLayoutForVisited(state, visited, startX, startY);
+  const pan = state.mapPan || { x: 0, y: 0 };
   ctx.font = "700 12px Microsoft YaHei, sans-serif";
   ctx.textAlign = "left";
   for (let i = 0; i < visited.length; i += 1) {
     const id = visited[i];
-    const room = state.worldRooms[id - 1];
+    const room = state.worldRooms[state.roomIndexById.get(id)];
     if (!room) continue;
-    const x = startX + (i % cols) * (cardW + gap);
-    const y = startY + Math.floor(i / cols) * (cardH + gap);
+    const scale = mapRoomScale(room);
+    const w = cardW * scale;
+    const h = cardH * scale;
+    const fallback = { x: startX + (i % cols) * (cardW + gap), y: startY + Math.floor(i / cols) * (cardH + gap) };
+    const position = layout.get(id) || fallback;
+    const x = position.x + pan.x;
+    const y = position.y + pan.y;
+    if (x > ctx.canvas.width || y > ctx.canvas.height || x + w < 0 || y + h < 0) continue;
     ctx.fillStyle = id === state.room.id ? "#263649" : "#202b38";
-    ctx.fillRect(x, y, cardW, cardH);
+    ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = id === state.room.id ? "#f4c95d" : "#3b4757";
-    ctx.strokeRect(x + 0.5, y + 0.5, cardW - 1, cardH - 1);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     ctx.fillStyle = "#dfe8ed";
     ctx.fillText(String(id).padStart(2, "0"), x + 6, y + 14);
-    const scaleX = (cardW - 12) / COLS;
-    const scaleY = (cardH - 24) / ROWS;
+    const roomCols = Math.max(1, room.blocks[0]?.length || COLS);
+    const roomRows = Math.max(1, room.blocks.length || ROWS);
+    const scaleX = (w - 12) / roomCols;
+    const scaleY = (h - 24) / roomRows;
     const ox = x + 6;
     const oy = y + 20;
     for (let gy = 0; gy < room.blocks.length; gy += 1) {
@@ -611,6 +654,32 @@ function drawVisitedMap(ctx, state) {
     }
   }
   ctx.restore();
+}
+
+function mapRoomScale(room) {
+  return Number(room?.roomSize) === 40 ? 2 : 1;
+}
+
+function mapLayoutForVisited(state, visited, startX, startY) {
+  const out = new Map();
+  const positioned = visited
+    .map((id) => ({
+      id,
+      ...(state.mapPositions?.[String(id)] || {}),
+    }))
+    .filter((room) => Number.isFinite(room.x) && Number.isFinite(room.y));
+  if (!positioned.length) return out;
+
+  const minX = Math.min(...positioned.map((room) => room.x));
+  const minY = Math.min(...positioned.map((room) => room.y));
+
+  for (const room of positioned) {
+    out.set(room.id, {
+      x: startX + room.x - minX,
+      y: startY + room.y - minY,
+    });
+  }
+  return out;
 }
 
 function drawRedQte(ctx, player) {
