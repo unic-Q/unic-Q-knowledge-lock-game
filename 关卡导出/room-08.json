@@ -1,5 +1,6 @@
 {
   "room": 8,
+  "roomSize": 20,
   "blocks": [
     "####################",
     "#...#...#...#...#HH#",
@@ -24,7 +25,11 @@
   ],
   "surfacePlagues": [],
   "controlBindings": [],
+  "lightningChains": [],
   "lightningNodes": [],
+  "emitters": [],
+  "sequencers": [],
+  "targetDefaults": {},
   "enemyPatrols": [],
   "spawn": {
     "x": 68,

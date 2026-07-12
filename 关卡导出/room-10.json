@@ -4,7 +4,7 @@
   "blocks": [
     "#########CC#########",
     "#!......DDD.......!#",
-    "#K........D........#",
+    "#.........D........#",
     "####>...........#..#",
     "#...............v..#",
     "#..................#",
@@ -96,24 +96,6 @@
           "y": 2
         }
       ]
-    },
-    {
-      "switch": {
-        "x": 1,
-        "y": 2
-      },
-      "targets": [
-        {
-          "type": "lightning",
-          "chain": 3,
-          "segment": 0
-        },
-        {
-          "type": "lightning",
-          "chain": 3,
-          "segment": 1
-        }
-      ]
     }
   ],
   "lightningChains": [
@@ -176,26 +158,6 @@
         }
       ],
       "closed": false
-    },
-    {
-      "nodes": [
-        {
-          "x": 3,
-          "y": 3,
-          "face": 3
-        },
-        {
-          "x": 9,
-          "y": 9,
-          "face": 0
-        },
-        {
-          "x": 16,
-          "y": 3,
-          "face": 0
-        }
-      ],
-      "closed": false
     }
   ],
   "lightningNodes": [
@@ -243,33 +205,14 @@
       "x": 10,
       "y": 9,
       "face": 1
-    },
-    {
-      "x": 3,
-      "y": 3,
-      "face": 3
-    },
-    {
-      "x": 9,
-      "y": 9,
-      "face": 0
-    },
-    {
-      "x": 16,
-      "y": 3,
-      "face": 0
     }
   ],
   "emitters": [],
   "sequencers": [],
-  "targetDefaults": {
-    "lightning:3,0": false,
-    "lightning:3,1": false
-  },
+  "targetDefaults": {},
   "enemyPatrols": [],
-  "advancedEnemies": [],
   "spawn": {
     "x": 612,
-    "y": 196
+    "y": 228
   }
 }

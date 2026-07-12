@@ -28,7 +28,9 @@ body {
 }
 
 .shell {
-  width: min(100%, 640px);
+  width: fit-content;
+  max-width: 100%;
+  overflow: auto;
 }
 
 .hud,
@@ -78,7 +80,8 @@ h1 {
 
 canvas {
   display: block;
-  width: min(100%, 640px);
+  width: auto;
+  max-width: none;
   height: auto;
   margin: 0 auto;
   background: #1b2633;

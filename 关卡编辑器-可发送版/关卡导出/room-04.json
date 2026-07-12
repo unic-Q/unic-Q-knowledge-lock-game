@@ -31,6 +31,7 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
   "spawn": {
     "x": 68,
     "y": 164

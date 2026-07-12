@@ -1,5 +1,6 @@
 {
   "room": 2,
+  "roomSize": 20,
   "blocks": [
     "#########!##########",
     "#..................#",
@@ -39,38 +40,17 @@
       "face": 1
     },
     {
-      "x": 4,
-      "y": 5,
-      "face": 3
-    },
-    {
-      "x": 4,
-      "y": 6,
-      "face": 3
-    },
-    {
-      "x": 4,
-      "y": 7,
-      "face": 3
-    },
-    {
-      "x": 4,
+      "x": 3,
       "y": 8,
-      "face": 3
-    },
-    {
-      "x": 4,
-      "y": 9,
-      "face": 3
-    },
-    {
-      "x": 4,
-      "y": 10,
-      "face": 3
+      "face": 1
     }
   ],
   "controlBindings": [],
+  "lightningChains": [],
   "lightningNodes": [],
+  "emitters": [],
+  "sequencers": [],
+  "targetDefaults": {},
   "enemyPatrols": [],
   "spawn": {
     "x": 36,

@@ -144,6 +144,7 @@
       }
     }
   ],
+  "advancedEnemies": [],
   "spawn": {
     "x": 68,
     "y": 4
