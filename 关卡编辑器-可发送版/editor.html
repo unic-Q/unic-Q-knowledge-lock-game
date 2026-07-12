@@ -1405,9 +1405,10 @@
         ctx.fill();
         ctx.stroke();
         ctx.strokeStyle = '#ffcf9a';
+        const direction = emitterDirectionVector(emitter);
         ctx.beginPath();
         ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + (emitter.dx || 1) * 18, cy + (emitter.dy || 0) * 18);
+        ctx.lineTo(cx + direction.x * 18, cy + direction.y * 18);
         ctx.stroke();
       }
       if (emitterDrag) {
@@ -1432,6 +1433,7 @@
         return `plague:${surface.x},${surface.y},${surface.face}`;
       }
       if (target.type === 'emitter') return `emitter:${target.index}`;
+      if (target.type === 'enemy') return `enemy:${target.index}`;
       return `cell:${target.x},${target.y}`;
     }
 
@@ -1441,7 +1443,26 @@
       if (plague) return { type: 'plague', x: plague.x, y: plague.y, face: plague.face };
       const emitterIndex = emitters.findIndex(item => Math.floor(item.x) === x && Math.floor(item.y) === y);
       if (emitterIndex >= 0) return { type: 'emitter', index: emitterIndex };
+      const enemyIndex = enemyTargetIndexAt(x, y);
+      if (enemyIndex >= 0) return { type: 'enemy', index: enemyIndex };
       return null;
+    }
+
+    function enemyTargetIndexAt(x, y) {
+      let index = 0;
+      for (let ty = 0; ty < ROWS; ty += 1) {
+        for (let tx = 0; tx < COLS; tx += 1) {
+          if (grid[ty]?.[tx] !== 'M') continue;
+          if (tx === x && ty === y) return index;
+          index += 1;
+        }
+      }
+      for (const enemy of advancedEnemies) {
+        const first = enemy.path?.[0];
+        if (first?.x === x && first?.y === y) return index;
+        index += 1;
+      }
+      return -1;
     }
 
     function lightningTargetNearPoint(point, radius = 10) {
@@ -1736,7 +1757,20 @@
         return surfacePlagues.some(p => controlTargetKey({ type: 'plague', ...p }) === key);
       }
       if (target.type === 'emitter') return Boolean(emitters[target.index]);
+      if (target.type === 'enemy') return Boolean(enemyTargetByIndex(target.index));
       return ['D', '!', 'C'].includes(grid[target.y]?.[target.x]);
+    }
+
+    function enemyTargetByIndex(index) {
+      let cursor = 0;
+      for (let y = 0; y < ROWS; y += 1) {
+        for (let x = 0; x < COLS; x += 1) {
+          if (grid[y]?.[x] !== 'M') continue;
+          if (cursor === index) return { type: 'normal', x, y };
+          cursor += 1;
+        }
+      }
+      return advancedEnemies[index - cursor] || null;
     }
 
     function placeBoundControl(x, y, char) {
@@ -1748,7 +1782,7 @@
         return controlTargetExists(target);
       });
       if (!pendingControlTargets.length) {
-        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口。');
+        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口、敌人。');
         return;
       }
       controlBindings = controlBindings.filter(binding => binding.switch.x !== x || binding.switch.y !== y);
@@ -1791,13 +1825,25 @@
         label: `灾厄喷口 ${index + 1}`,
         target: { type: 'emitter', index }
       }));
+      let enemyIndex = 0;
+      for (let ty = 0; ty < ROWS; ty += 1) {
+        for (let tx = 0; tx < COLS; tx += 1) {
+          if (grid[ty]?.[tx] !== 'M') continue;
+          options.push({ label: `敌人 ${enemyIndex + 1} (${tx},${ty})`, target: { type: 'enemy', index: enemyIndex } });
+          enemyIndex += 1;
+        }
+      }
+      advancedEnemies.forEach((enemy, index) => {
+        const first = enemy.path?.[0] || { x: 0, y: 0 };
+        options.push({ label: `高级敌人 ${index + 1} (${first.x},${first.y})`, target: { type: 'enemy', index: enemyIndex + index } });
+      });
       return options;
     }
 
     function openSequencerPanel(x, y) {
       const options = sequencerTargetOptions();
       if (!options.length) {
-        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链或灾厄喷口。');
+        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口或敌人。');
         return;
       }
       const overlay = document.createElement('div');
@@ -1806,7 +1852,7 @@
       panel.style.cssText = 'width:680px;max-height:82vh;overflow:auto;background:#202b38;border:1px solid #4b5a6b;border-radius:8px;padding:14px;color:#dfe8ed;font-family:Microsoft YaHei,sans-serif;';
       panel.innerHTML = `
         <h2 style="font-size:18px;margin:0 0 10px;color:#f4c95d;">时序装置事件面板</h2>
-        <div style="font-size:12px;color:#9fb0c2;margin-bottom:10px;">每一行是一组事件；同一行多选目标表示同时发生；延迟表示距离上一行开始的间隔秒数。</div>
+        <div style="font-size:12px;color:#9fb0c2;margin-bottom:10px;">每一行是一组事件；先填时间点，再选动作和目标。同一行多选目标表示同时发生。</div>
         <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><input type="checkbox" id="seq-loop">循环播放</label>
         <div id="seq-rows"></div>
         <div style="display:flex;gap:8px;margin-top:12px;">
@@ -1818,16 +1864,24 @@
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
       const rows = panel.querySelector('#seq-rows');
-      const addRow = (delay = rows.children.length ? 1 : 0, duration = 0.5) => {
+      const addRow = (time = rows.children.length ? rows.children.length : 0, duration = 0.5, action = 'trigger') => {
         const row = document.createElement('div');
-        row.style.cssText = 'display:grid;grid-template-columns:90px 90px 1fr 54px;gap:8px;align-items:center;margin-bottom:8px;';
+        row.style.cssText = 'display:grid;grid-template-columns:80px 80px 130px 1fr 54px;gap:8px;align-items:center;margin-bottom:8px;';
         const optionHtml = options.map((option, index) => `<option value="${index}">${option.label}</option>`).join('');
         row.innerHTML = `
-          <input class="seq-delay" type="number" min="0" step="0.1" value="${delay}" title="延迟秒数">
+          <input class="seq-time" type="number" min="0" step="0.1" value="${time}" title="发生时间">
           <input class="seq-duration" type="number" min="0.05" step="0.05" value="${duration}" title="持续秒数">
+          <select class="seq-action" title="发生什么">
+            <option value="trigger">触发默认变化</option>
+            <option value="release">取消默认变化</option>
+            <option value="kill">击杀敌人</option>
+            <option value="revive">复活敌人</option>
+            <option value="resetPath">敌人回到路径起点</option>
+          </select>
           <select class="seq-targets" multiple size="5">${optionHtml}</select>
           <button class="action-btn danger seq-remove" style="padding:6px;width:auto;">删</button>
         `;
+        row.querySelector('.seq-action').value = action;
         row.querySelector('.seq-remove').addEventListener('click', () => row.remove());
         rows.appendChild(row);
       };
@@ -1835,11 +1889,13 @@
       panel.querySelector('#seq-add').addEventListener('click', () => addRow());
       panel.querySelector('#seq-cancel').addEventListener('click', () => overlay.remove());
       panel.querySelector('#seq-save').addEventListener('click', () => {
-        const events = [...rows.children].map((row) => {
+        const events = [...rows.children].map((row, index) => {
           const selected = [...row.querySelector('.seq-targets').selectedOptions].map(option => options[Number(option.value)].target);
           return {
-            delay: clampNumber(row.querySelector('.seq-delay').value, 0, 60, 0),
+            id: `event-${index}`,
+            time: clampNumber(row.querySelector('.seq-time').value, 0, 60, 0),
             duration: clampNumber(row.querySelector('.seq-duration').value, 0.05, 60, 0.5),
+            action: row.querySelector('.seq-action').value,
             targets: selected.map(target => ({ ...target })),
           };
         }).filter(event => event.targets.length);
@@ -1977,6 +2033,8 @@
       const first = path[0];
       const second = path[1] || { x: first.x + 1, y: first.y };
       const direction = snapDirection(second.x - first.x, second.y - first.y);
+      const directionChoice = promptEmitterDirection(true, direction);
+      if (!directionChoice) return;
       const hazard = prompt('灾厄喷口危险物：spike / plague / lightning', 'spike');
       if (hazard === null) return;
       const size = clampNumber(prompt('发射物大小（格边长单位，0.25-3）', '0.5'), 0.25, 3, 0.5);
@@ -1993,8 +2051,9 @@
       emitters.push({
         x: first.x,
         y: first.y,
-        dx: direction.x,
-        dy: direction.y,
+        dx: directionChoice.x,
+        dy: directionChoice.y,
+        directionMode: directionChoice.mode,
         hazard: hazard.trim().toLowerCase().startsWith('plague') ? 'plague' : hazard.trim().toLowerCase().startsWith('light') ? 'lightning' : 'spike',
         size,
         period,
@@ -2032,6 +2091,12 @@
       const rawDx = current.x - start.x;
       const rawDy = current.y - start.y;
       const direction = snapDirection(rawDx, rawDy);
+      const directionChoice = promptEmitterDirection(false, direction);
+      if (!directionChoice) {
+        emitterDrag = null;
+        render();
+        return;
+      }
       const hazard = prompt('灾厄喷口危险物：spike / plague / lightning', 'spike');
       if (hazard === null) {
         emitterDrag = null;
@@ -2055,8 +2120,9 @@
       emitters.push({
         x: start.x,
         y: start.y,
-        dx: direction.x,
-        dy: direction.y,
+        dx: directionChoice.x,
+        dy: directionChoice.y,
+        directionMode: directionChoice.mode,
         hazard: hazard.trim().toLowerCase().startsWith('plague') ? 'plague' : hazard.trim().toLowerCase().startsWith('light') ? 'lightning' : 'spike',
         size,
         period,
@@ -2078,6 +2144,37 @@
         x: Math.round(Math.cos(snapped)),
         y: Math.round(Math.sin(snapped)),
       };
+    }
+
+    function promptEmitterDirection(allowFacing, fallback) {
+      const message = allowFacing
+        ? '发射方向：1上 2下 3左 4右 5面朝方向'
+        : '发射方向：1上 2下 3左 4右';
+      const defaultValue = directionChoiceFromVector(fallback);
+      const choice = prompt(message, defaultValue);
+      if (choice === null) return null;
+      const value = String(choice).trim();
+      if (value === '1' || value === '上') return { mode: 'up', x: 0, y: -1 };
+      if (value === '2' || value === '下') return { mode: 'down', x: 0, y: 1 };
+      if (value === '3' || value === '左') return { mode: 'left', x: -1, y: 0 };
+      if (value === '4' || value === '右') return { mode: 'right', x: 1, y: 0 };
+      if (allowFacing && (value === '5' || value === '面朝方向')) return { mode: 'facing', x: fallback.x || 1, y: fallback.y || 0 };
+      return promptEmitterDirection(allowFacing, fallback);
+    }
+
+    function directionChoiceFromVector(vector) {
+      if (Math.abs(vector.y) >= Math.abs(vector.x)) return vector.y < 0 ? '1' : '2';
+      return vector.x < 0 ? '3' : '4';
+    }
+
+    function emitterDirectionVector(emitter) {
+      const mode = emitter.directionMode || emitter.direction || 'vector';
+      if (mode === 'up') return { x: 0, y: -1 };
+      if (mode === 'down') return { x: 0, y: 1 };
+      if (mode === 'left') return { x: -1, y: 0 };
+      if (mode === 'right') return { x: 1, y: 0 };
+      if (mode === 'facing') return { x: Number(emitter.dx || 1), y: Number(emitter.dy || 0) };
+      return { x: Number(emitter.dx || 1), y: Number(emitter.dy || 0) };
     }
 
     function surfaceKey(surface) {

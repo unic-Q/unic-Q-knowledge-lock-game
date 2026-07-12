@@ -104,6 +104,13 @@ function drawEnemy(ctx, e) {
   ctx.fillStyle = "#f4c95d";
   ctx.fillRect(e.x + 5, e.y + 8, 4, 4);
   ctx.fillRect(e.x + e.w - 9, e.y + 8, 4, 4);
+  if (e.advanced && Number.isFinite(e.maxHp) && e.maxHp > 1) {
+    const ratio = Math.max(0, Math.min(1, Number(e.hp ?? e.maxHp) / e.maxHp));
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(e.x, e.y - 7, e.w, 4);
+    ctx.fillStyle = "#f4c95d";
+    ctx.fillRect(e.x, e.y - 7, e.w * ratio, 4);
+  }
 }
 
 function drawSwitch(ctx, s) {

@@ -505,6 +505,7 @@ export function parseRoom(data) {
     h: TILE,
     dx: Number(item.dx || 1),
     dy: Number(item.dy || 0),
+    directionMode: item.directionMode || item.direction || "vector",
     hazard: item.hazard || "spike",
     size: Number(item.size || 0.5),
     period: Number(item.period || 2),
@@ -675,6 +676,7 @@ export function parseRoom(data) {
     if (!path.length) continue;
     const w = Math.max(8, Number(item.w || item.width || 1) * TILE);
     const h = Math.max(8, Number(item.h || item.height || 1) * TILE);
+    const maxHp = Math.max(1, Math.ceil((w / TILE) * (h / TILE)));
     enemies.push({
       x: path[0].x - w / 2,
       y: path[0].y - h / 2,
@@ -682,11 +684,19 @@ export function parseRoom(data) {
       h,
       alive: true,
       advanced: true,
+      hp: maxHp,
+      maxHp,
       path,
       pathIndex: path.length > 1 ? 1 : 0,
-      speed: Math.max(0, Number(item.speed || 1)) * TILE,
+      moveSpeed: Math.max(0, Number(item.speed || item.moveSpeed || 1)) * TILE,
     });
   }
+  enemies.forEach((enemy, index) => {
+    enemy.targetKey = `enemy:${index}`;
+    enemy.spawnX = enemy.x;
+    enemy.spawnY = enemy.y;
+    enemy.spawnPathIndex = enemy.pathIndex || 0;
+  });
   return {
     ...data,
     roomSize,

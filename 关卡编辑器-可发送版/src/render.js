@@ -104,6 +104,13 @@ function drawEnemy(ctx, e) {
   ctx.fillStyle = "#f4c95d";
   ctx.fillRect(e.x + 5, e.y + 8, 4, 4);
   ctx.fillRect(e.x + e.w - 9, e.y + 8, 4, 4);
+  if (e.advanced && Number.isFinite(e.maxHp) && e.maxHp > 1) {
+    const ratio = Math.max(0, Math.min(1, Number(e.hp ?? e.maxHp) / e.maxHp));
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(e.x, e.y - 7, e.w, 4);
+    ctx.fillStyle = "#f4c95d";
+    ctx.fillRect(e.x, e.y - 7, e.w * ratio, 4);
+  }
 }
 
 function drawEmitter(ctx, emitter, state) {
@@ -119,11 +126,32 @@ function drawEmitter(ctx, emitter, state) {
   ctx.fill();
   ctx.stroke();
   ctx.strokeStyle = "#ffcf9a";
+  const direction = emitterDirection(emitter);
   ctx.beginPath();
   ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + (emitter.dx || 1) * 16, cy + (emitter.dy || 0) * 16);
+  ctx.lineTo(cx + direction.x * 16, cy + direction.y * 16);
   ctx.stroke();
   ctx.lineWidth = 1;
+}
+
+function emitterDirection(emitter) {
+  const mode = emitter.directionMode || emitter.direction || "vector";
+  if (mode === "up") return { x: 0, y: -1 };
+  if (mode === "down") return { x: 0, y: 1 };
+  if (mode === "left") return { x: -1, y: 0 };
+  if (mode === "right") return { x: 1, y: 0 };
+  if (mode === "facing" && Array.isArray(emitter.path) && emitter.path.length) {
+    const target = emitter.path[emitter.pathIndex % emitter.path.length];
+    if (target) {
+      const cx = emitter.x + emitter.w / 2;
+      const cy = emitter.y + emitter.h / 2;
+      const dx = target.x - cx;
+      const dy = target.y - cy;
+      const length = Math.hypot(dx, dy);
+      if (length > 0.001) return { x: dx / length, y: dy / length };
+    }
+  }
+  return { x: Number(emitter.dx || 1), y: Number(emitter.dy || 0) };
 }
 
 function drawProjectile(ctx, projectile) {

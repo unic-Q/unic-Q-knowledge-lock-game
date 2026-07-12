@@ -908,8 +908,9 @@ function updateEmitters(dt) {
     emitter.cooldown = Math.max(0.08, period / 6);
     const size = Math.max(4, (emitter.size || 0.5) * TILE);
     const speed = Math.max(0.5, emitter.speed || 6) * TILE;
-    const dx = emitter.dx || 1;
-    const dy = emitter.dy || 0;
+    const direction = emitterDirection(emitter);
+    const dx = direction.x;
+    const dy = direction.y;
     room.projectiles.push({
       x: emitter.x + TILE / 2 - size / 2,
       y: emitter.y + TILE / 2 - size / 2,
@@ -923,6 +924,27 @@ function updateEmitters(dt) {
       life: 8,
     });
   }
+}
+
+function emitterDirection(emitter) {
+  const mode = emitter.directionMode || emitter.direction || "vector";
+  if (mode === "up") return { x: 0, y: -1 };
+  if (mode === "down") return { x: 0, y: 1 };
+  if (mode === "left") return { x: -1, y: 0 };
+  if (mode === "right") return { x: 1, y: 0 };
+  if (mode === "facing") {
+    const path = Array.isArray(emitter.path) ? emitter.path : [];
+    const target = path[emitter.pathIndex % path.length];
+    const cx = emitter.x + emitter.w / 2;
+    const cy = emitter.y + emitter.h / 2;
+    if (target) {
+      const dx = target.x - cx;
+      const dy = target.y - cy;
+      const length = Math.hypot(dx, dy);
+      if (length > 0.001) return { x: dx / length, y: dy / length };
+    }
+  }
+  return { x: Number(emitter.dx || 1), y: Number(emitter.dy || 0) };
 }
 
 function updatePathMover(entity, dt) {
@@ -1111,8 +1133,10 @@ function handleSwitches(dt = 0) {
       targetControllers.get(targetKey).push(Boolean(switchStates.get(key)));
     }
   }
-  updateSequencers(room, switchStates, targetControllers, dt);
+  const targetForces = new Map();
+  updateSequencers(room, switchStates, targetControllers, targetForces, dt);
   const targetActive = (key) => {
+    if (targetForces.has(key)) return Boolean(targetForces.get(key));
     const controllers = targetControllers.get(key);
     return Boolean(controllers?.length) && controllers.every(Boolean);
   };
@@ -1153,10 +1177,11 @@ function targetKeyForControlTarget(target) {
     return surface ? `plague:${surface.x},${surface.y},${surface.face}` : "plague:invalid";
   }
   if (target.type === "emitter") return `emitter:${target.index}`;
+  if (target.type === "enemy") return `enemy:${target.index}`;
   return `cell:${target.x},${target.y}`;
 }
 
-function updateSequencers(room, switchStates, targetControllers, dt) {
+function updateSequencers(room, switchStates, targetControllers, targetForces, dt) {
   for (const sequencer of room.sequencers || []) {
     for (const target of sequencerTargets(sequencer)) {
       const key = targetKeyForControlTarget(target);
@@ -1173,7 +1198,7 @@ function updateSequencers(room, switchStates, targetControllers, dt) {
     if (!sequencer.started) continue;
     sequencer.timer += dt;
     if (Array.isArray(sequencer.events) && sequencer.events.length) {
-      updateEventSequencer(sequencer, targetControllers);
+      updateEventSequencer(room, sequencer, targetControllers, targetForces);
       continue;
     }
     const interval = Math.max(0.2, Number(sequencer.interval || 1));
@@ -1201,13 +1226,22 @@ function sequencerTargets(sequencer) {
   return sequencer.targets || [];
 }
 
-function updateEventSequencer(sequencer, targetControllers) {
+function updateEventSequencer(room, sequencer, targetControllers, targetForces) {
+  const events = sequencer.events || [];
+  const usesAbsoluteTime = events.some((event) => Number.isFinite(Number(event.time)));
   let cursor = 0;
   const timeline = [];
-  for (const event of sequencer.events || []) {
-    cursor += Math.max(0, Number(event.delay || 0));
+  for (const event of events) {
+    if (usesAbsoluteTime) cursor = Math.max(0, Number(event.time || 0));
+    else cursor += Math.max(0, Number(event.delay || 0));
     const duration = Math.max(0.05, Number(event.duration || 0.5));
-    timeline.push({ start: cursor, end: cursor + duration, targets: event.targets || [] });
+    timeline.push({
+      id: event.id || `${cursor}:${duration}:${event.action || "trigger"}`,
+      start: cursor,
+      end: cursor + duration,
+      action: event.action || "trigger",
+      targets: event.targets || [],
+    });
   }
   const total = Math.max(0.05, timeline.reduce((max, event) => Math.max(max, event.end), 0));
   if (!sequencer.loop && sequencer.timer >= total) {
@@ -1219,8 +1253,33 @@ function updateEventSequencer(sequencer, targetControllers) {
     if (t < event.start || t >= event.end) continue;
     for (const target of event.targets) {
       const key = targetKeyForControlTarget(target);
-      targetControllers.get(key)?.push(true);
+      if (event.action === "trigger") targetForces.set(key, true);
+      else if (event.action === "release") targetForces.set(key, false);
+      else applySequencerInstantAction(room, sequencer, event, target);
     }
+  }
+}
+
+function applySequencerInstantAction(room, sequencer, event, target) {
+  const cycle = Math.floor(sequencer.timer / Math.max(0.05, event.end || 1));
+  const key = `${cycle}:${event.id}:${targetKeyForControlTarget(target)}:${event.action}`;
+  sequencer.firedActions ||= new Set();
+  if (sequencer.firedActions.has(key)) return;
+  sequencer.firedActions.add(key);
+  if (target.type !== "enemy") return;
+  const enemy = room.enemies?.[target.index];
+  if (!enemy) return;
+  if (event.action === "kill") {
+    enemy.alive = false;
+  } else if (event.action === "revive") {
+    enemy.alive = true;
+    if (Number.isFinite(enemy.maxHp)) enemy.hp = enemy.maxHp;
+  } else if (event.action === "resetPath") {
+    enemy.x = enemy.spawnX ?? enemy.x;
+    enemy.y = enemy.spawnY ?? enemy.y;
+    enemy.pathIndex = enemy.spawnPathIndex || 0;
+    enemy.alive = true;
+    if (Number.isFinite(enemy.maxHp)) enemy.hp = enemy.maxHp;
   }
 }
 
@@ -1304,16 +1363,16 @@ function handleEnemies() {
   for (const enemy of room.enemies || []) {
     if (!enemy.alive) continue;
     if (canWhiteKill(enemy) || canGreenLineKill(enemy)) {
-      enemy.alive = false;
+      damageEnemy(enemy, 1);
       continue;
     }
     if (!rectsOverlap(player, enemy)) continue;
     const blackStomp = state.form === "black" && player.vy > 120 && player.y + player.h <= enemy.y + 12;
     if (state.form === "red" && player.redDash) {
-      enemy.alive = false;
+      damageEnemy(enemy, 1);
       player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
     } else if (blackStomp) {
-      enemy.alive = false;
+      damageEnemy(enemy, 1);
       player.vy = Math.min(player.vy, -360);
     } else if (player.rollTimer > 0) {
       refreshRoll(player);
@@ -1322,6 +1381,17 @@ function handleEnemies() {
       return;
     }
   }
+}
+
+function damageEnemy(enemy, amount = 1) {
+  if (!enemy.advanced) {
+    enemy.alive = false;
+    return;
+  }
+  if (enemy.damageCooldown > 0) return;
+  enemy.hp = Math.max(0, Number(enemy.hp ?? enemy.maxHp ?? 1) - amount);
+  enemy.damageCooldown = 0.25;
+  if (enemy.hp <= 0) enemy.alive = false;
 }
 
 function canWhiteKill(enemy) {
@@ -1353,6 +1423,7 @@ function refreshRoll(player) {
 
 function updateEnemyPatrols(dt) {
   for (const enemy of state.room.enemies || []) {
+    enemy.damageCooldown = Math.max(0, (enemy.damageCooldown || 0) - dt);
     if (!enemy.alive) continue;
     if (enemy.path) {
       updatePathMover(enemy, dt);
