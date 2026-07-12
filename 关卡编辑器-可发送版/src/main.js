@@ -1366,7 +1366,7 @@ function queueDropBossBottomWarnings(boss) {
   const y = Math.max(0, room.height - TILE * 2);
   const warnings = [];
   for (let col = 0; col < cols; col += 1) {
-    if (col % 3 === 1 && Math.random() < 0.65) continue;
+    if (col % 6 >= 4) continue;
     const kind = randomBossDropKind();
     const width = kind === "lightning" ? TILE * 2 : TILE;
     warnings.push({
