@@ -479,7 +479,6 @@ export function parseRoom(data) {
   const cols = Array.isArray(data.blocks)
     ? Math.max(roomSize, ...data.blocks.map((row) => String(row || "").length))
     : roomSize;
-  const roomId = Number(data.room ?? data.id);
   const blocks = [];
   const platforms = [];
   const breakablePlatforms = [];
@@ -610,8 +609,8 @@ export function parseRoom(data) {
         y: b.y,
         w: TILE * 3,
         h: TILE * 3,
-        hp: roomId === 13 ? 5 : 3,
-        maxHp: roomId === 13 ? 5 : 3,
+        hp: 5,
+        maxHp: 5,
         state: "waiting",
         timer: 0,
         chargeDistance: 0,
