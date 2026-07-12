@@ -991,8 +991,12 @@ function chooseBossDirection(boss) {
 function startBossAim(boss) {
   chooseBossDirection(boss);
   boss.state = "aim";
-  boss.timer = [0.75, 0.9, 1.05][Math.max(0, boss.hp - 1)];
+  boss.timer = bossPatternValue(boss, [0.75, 0.9, 1.05]);
   boss.shotFired = false;
+}
+
+function bossPatternValue(boss, values) {
+  return values[Math.min(values.length - 1, Math.max(0, (boss.hp || 1) - 1))];
 }
 
 function fireBossProjectile(boss) {
@@ -1000,7 +1004,7 @@ function fireBossProjectile(boss) {
   const dx = player.x + player.w / 2 - (boss.x + boss.w / 2);
   const dy = player.y + player.h / 2 - (boss.y + boss.h / 2);
   const length = Math.hypot(dx, dy) || 1;
-  const speed = [6, 5.5, 5][Math.max(0, boss.hp - 1)] * TILE;
+  const speed = bossPatternValue(boss, [6, 5.5, 5]) * TILE;
   const size = TILE * 0.55;
   state.room.projectiles.push({
     x: boss.x + boss.w / 2 - size / 2,
@@ -1011,7 +1015,7 @@ function fireBossProjectile(boss) {
     vy: dy / length * speed,
     speed,
     hazard: "spike",
-    trackingTime: [1.1, 0.9, 0.7][Math.max(0, boss.hp - 1)],
+    trackingTime: bossPatternValue(boss, [1.1, 0.9, 0.7]),
     life: 8,
     source: "boss",
   });
@@ -1047,7 +1051,7 @@ function updateBoss(dt) {
   boss.timer -= dt;
   if (boss.state === "intro" && boss.timer <= 0) startBossAim(boss);
   else if (boss.state === "aim" && boss.timer <= 0) {
-    const speed = [10, 9, 8][Math.max(0, boss.hp - 1)] * TILE;
+    const speed = bossPatternValue(boss, [10, 9, 8]) * TILE;
     boss.vx = boss.aimX * speed;
     boss.vy = boss.aimY * speed;
     boss.chargeDistance = 0;

@@ -334,10 +334,15 @@ function drawBoss(ctx, boss) {
   ctx.fillRect(boss.x + 19, boss.y + 28, 12, 10);
   ctx.fillRect(boss.x + boss.w - 31, boss.y + 28, 12, 10);
   ctx.fillStyle = "#151820";
-  ctx.fillRect(boss.x + 16, boss.y - 14, boss.w - 32, 7);
-  for (let i = 0; i < boss.maxHp; i += 1) {
+  const maxHp = Math.max(1, boss.maxHp || 1);
+  const gap = 4;
+  const barX = boss.x + 16;
+  const barW = boss.w - 32;
+  const tickW = Math.max(3, (barW - gap * (maxHp - 1)) / maxHp);
+  ctx.fillRect(barX, boss.y - 14, barW, 7);
+  for (let i = 0; i < maxHp; i += 1) {
     ctx.fillStyle = i < boss.hp ? "#d34b4b" : "#4a4148";
-    ctx.fillRect(boss.x + 18 + i * 20, boss.y - 13, 16, 5);
+    ctx.fillRect(barX + i * (tickW + gap), boss.y - 13, tickW, 5);
   }
   if (boss.state === "aim") {
     ctx.strokeStyle = "rgba(217,91,66,0.85)";
@@ -538,6 +543,7 @@ export function draw(ctx, state) {
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   const camera = roomCamera(room, player, ctx.canvas);
   ctx.save();
+  ctx.scale(camera.scale, camera.scale);
   ctx.translate(-camera.x, -camera.y);
 
   for (const b of room.blocks) if (!b.broken) {
@@ -716,10 +722,15 @@ export function draw(ctx, state) {
 }
 
 function roomCamera(room, player, canvas) {
-  if (!room || room.width <= WIDTH && room.height <= HEIGHT) return { x: 0, y: 0 };
+  if (!room || room.width <= WIDTH && room.height <= HEIGHT) return { x: 0, y: 0, scale: 1 };
+  const targetTiles = room.width > WIDTH || room.height > HEIGHT ? 30 : 20;
+  const scale = Math.min(canvas.width / (targetTiles * TILE), canvas.height / (targetTiles * TILE), 1);
+  const viewW = canvas.width / scale;
+  const viewH = canvas.height / scale;
   return {
-    x: Math.max(0, Math.min(room.width - canvas.width, player.x + player.w / 2 - canvas.width / 2)),
-    y: Math.max(0, Math.min(room.height - canvas.height, player.y + player.h / 2 - canvas.height / 2)),
+    x: Math.max(0, Math.min(room.width - viewW, player.x + player.w / 2 - viewW / 2)),
+    y: Math.max(0, Math.min(room.height - viewH, player.y + player.h / 2 - viewH / 2)),
+    scale,
   };
 }
 
