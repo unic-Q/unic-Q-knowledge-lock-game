@@ -1704,10 +1704,11 @@ function handleSwitches(dt = 0) {
     const body = bodyCanPress && rectsOverlap(player, s);
     const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
     const isFinalBossSwitch = room.bossRoom && s.switchKey === "8,38";
-    const isDropBossFinalSwitch = isRoom22DropBossSwitch(room);
+    const isDropBossFinalSwitch = isDropBossSwitchLocked(room) || isDropBossSwitchUnlocked(room);
     if (isFinalBossSwitch || isDropBossFinalSwitch) {
-      if (isDropBossFinalSwitch && !room.bossDefeated) {
+      if (isDropBossSwitchLocked(room)) {
         s.pressed = false;
+        s.latched = false;
         continue;
       }
       if (room.bossDefeated && !body) room.finalSwitchArmed = true;
@@ -1755,6 +1756,10 @@ function handleSwitches(dt = 0) {
     ...(room.leverSwitches || []),
     ...(room.hiddenTriggers || []),
   ]) {
+    if ((room.switches || []).includes(item) && isDropBossSwitchLocked(room)) {
+      switchStates.set(item.switchKey, false);
+      continue;
+    }
     switchStates.set(item.switchKey, Boolean(item.pressed));
   }
   const targetControllers = new Map();
@@ -1823,8 +1828,12 @@ function handleSwitches(dt = 0) {
   }
 }
 
-function isRoom22DropBossSwitch(room) {
-  return Number(room?.id) === 22 && Boolean(room?.dropBosses?.length);
+function isDropBossSwitchLocked(room) {
+  return Boolean(room?.dropBosses?.some((boss) => !boss.defeated));
+}
+
+function isDropBossSwitchUnlocked(room) {
+  return Boolean(room?.dropBosses?.length) && !isDropBossSwitchLocked(room);
 }
 
 function targetKeyForControlTarget(target) {

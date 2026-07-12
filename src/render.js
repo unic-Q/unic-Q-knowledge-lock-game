@@ -742,7 +742,7 @@ export function draw(ctx, state) {
 }
 
 function isRoom22DropBossSwitchHidden(room) {
-  return Number(room?.id) === 22 && Boolean(room?.dropBosses?.length) && !room.bossDefeated;
+  return Boolean(room?.dropBosses?.some((boss) => !boss.defeated));
 }
 
 function drawPlayerDeath(ctx, state) {
