@@ -666,7 +666,10 @@ export function draw(ctx, state) {
   if (isGreenAfterimage(state)) ctx.globalAlpha = 0.3;
   ctx.fillStyle = state.form === "green" && !isGreenAfterimage(state) ? "#56735c" : FORMS[state.form].color;
   let playerDrawn = false;
-  if (player.rollTimer > 0) {
+  if (state.deathTimer > 0) {
+    drawPlayerDeath(ctx, state);
+    playerDrawn = true;
+  } else if (player.rollTimer > 0) {
     ctx.save();
     ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
     ctx.rotate(player.facing * (0.8 - player.rollTimer * 5));
@@ -709,7 +712,7 @@ export function draw(ctx, state) {
   }
   ctx.restore();
 
-  drawRedQte(ctx, player);
+  if (state.deathTimer <= 0) drawRedQte(ctx, player);
   ctx.restore();
   if (state.form === "black") {
     ctx.fillStyle = "#d6c08a";
@@ -718,6 +721,38 @@ export function draw(ctx, state) {
   }
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
+  ctx.restore();
+}
+
+function drawPlayerDeath(ctx, state) {
+  const { player } = state;
+  const t = Math.max(0, Math.min(1, 1 - state.deathTimer));
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const base = state.form === "green" && !isGreenAfterimage(state) ? "#56735c" : FORMS[state.form].color;
+  ctx.save();
+  ctx.globalAlpha = 1 - t * 0.75;
+  ctx.translate(cx, cy);
+  ctx.rotate((player.facing || 1) * t * Math.PI * 1.6);
+  const scale = Math.max(0.18, 1 - t * 0.72);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = base;
+  ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+  ctx.strokeStyle = "rgba(17,25,35,0.7)";
+  ctx.strokeRect(-player.w / 2 + 0.5, -player.h / 2 + 0.5, player.w - 1, player.h - 1);
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, 1 - t);
+  const fragments = [
+    [-1, -0.6], [1, -0.7], [-0.8, 0.7], [0.9, 0.55], [0, -1],
+  ];
+  ctx.fillStyle = base;
+  for (let i = 0; i < fragments.length; i += 1) {
+    const [dx, dy] = fragments[i];
+    const size = Math.max(3, 7 - t * 3);
+    ctx.fillRect(cx + dx * t * 34 - size / 2, cy + dy * t * 28 - size / 2, size, size);
+  }
   ctx.restore();
 }
 

@@ -53,6 +53,8 @@ const state = {
   eventLog: [],
   overallPlaytest: false,
   roomIndexById: new Map(worldRooms.map((room, index) => [room.id, index])),
+  deathTimer: 0,
+  deathReason: null,
 };
 
 function logEvent(type, data = {}) {
@@ -272,8 +274,18 @@ async function loadExportedWorld() {
 }
 
 function respawn(reason = "unknown") {
+  if (state.deathTimer > 0) return;
+  state.deathTimer = 1;
+  state.deathReason = reason;
+  state.lastRespawn = reason;
+  logEvent("death", { reason });
+}
+
+function finishRespawn(reason = "unknown") {
   logEvent("respawn", { reason });
   state.lastRespawn = reason;
+  state.deathTimer = 0;
+  state.deathReason = null;
   state.roomIndex = state.checkpoint.roomIndex;
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
   applyBossRoomProgress(true);
@@ -605,6 +617,15 @@ function update(dt) {
   const input = inputState();
 
   if (oneShot("KeyR")) respawn("manual");
+  if (state.deathTimer > 0) {
+    state.deathTimer = Math.max(0, state.deathTimer - dt);
+    if (state.deathTimer <= 0) finishRespawn(state.deathReason || "unknown");
+    state.shake = Math.max(0, state.shake - 25 * dt);
+    updateDebugPanel();
+    sendDebugSnapshot(dt);
+    prevKeys = new Set(keys);
+    return;
+  }
   if (oneShot("KeyM")) {
     state.mapOpen = !state.mapOpen;
     mapDrag = null;
