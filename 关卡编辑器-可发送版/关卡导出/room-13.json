@@ -1,5 +1,6 @@
 {
   "room": 13,
+  "roomSize": 40,
   "blocks": [
     "########################################",
     "#......................................#",
@@ -42,7 +43,6 @@
     "#...DDDDK..............................#",
     "####....################################"
   ],
-  "roomSize": 40,
   "surfacePlagues": [],
   "controlBindings": [
     {
@@ -131,6 +131,7 @@
     }
   ],
   "lightningChains": [],
+  "lightningNodes": [],
   "emitters": [
     {
       "x": 29,
@@ -178,8 +179,8 @@
     "emitter:1": false,
     "emitter:2": false
   },
-  "lightningNodes": [],
   "enemyPatrols": [],
+  "advancedEnemies": [],
   "spawn": {
     "x": 1188,
     "y": 356
