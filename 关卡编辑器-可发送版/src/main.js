@@ -1129,6 +1129,10 @@ function hitDropBoss(boss) {
     boss.defeated = true;
     boss.enabled = false;
     boss.warnings = [];
+    boss.phase = null;
+  } else if (boss.hp <= (boss.nextPhaseHp ?? 0)) {
+    boss.nextPhaseHp = Math.max(0, (boss.nextPhaseHp ?? 0) - 2);
+    startDropBossPhase(boss);
   }
 }
 
@@ -1268,6 +1272,7 @@ function updateMovingPlatforms(dt) {
 
 function updatePlatformGenerators(dt) {
   const { room } = state;
+  if (dropBossPhaseActive(room)) return;
   for (const generator of room.platformGenerators || []) {
     if (!generator.enabled) continue;
     generator.timer = (generator.timer || 0) - dt;
@@ -1293,6 +1298,10 @@ function updateDropBosses(dt) {
   for (const boss of room.dropBosses || []) {
     if (boss.defeated) continue;
     boss.hitCooldown = Math.max(0, (boss.hitCooldown || 0) - dt);
+    if (boss.phase) {
+      updateDropBossPhase(boss, dt);
+      continue;
+    }
     boss.pauseTimer = Math.max(0, (boss.pauseTimer || 0) - dt);
     if (!boss.enabled) continue;
     updateDropBossMovement(boss, dt);
@@ -1315,6 +1324,88 @@ function updateDropBosses(dt) {
     }
     boss.warnings = (boss.warnings || []).filter((warning) => warning.timer > 0);
   }
+}
+
+function dropBossPhaseActive(room) {
+  return (room.dropBosses || []).some((boss) => boss.phase && !boss.defeated);
+}
+
+function updateDropBossPhase(boss, dt) {
+  boss.phase.timer -= dt;
+  for (const warning of boss.warnings || []) warning.timer = Math.max(0, boss.phase.timer);
+  if (boss.phase.timer > 0) return;
+  if (boss.phase.state === "warning") {
+    spawnDropBossPhaseGarbage(boss);
+    boss.phase.state = "fall";
+    boss.phase.timer = 0.45;
+    return;
+  }
+  boss.phase.cycle += 1;
+  if (boss.phase.cycle >= 2) {
+    clearDropBossArenaObjects();
+    boss.phase = null;
+    boss.pauseTimer = 0;
+    boss.timer = boss.interval;
+    for (const generator of state.room.platformGenerators || []) generator.timer = 0;
+    return;
+  }
+  queueDropBossBottomWarnings(boss);
+}
+
+function startDropBossPhase(boss) {
+  clearDropBossArenaObjects();
+  boss.pauseTimer = 0;
+  boss.timer = boss.interval;
+  boss.phase = { state: "warning", cycle: 0, timer: boss.warningTime || 3, warnings: [] };
+  queueDropBossBottomWarnings(boss);
+}
+
+function queueDropBossBottomWarnings(boss) {
+  const { room } = state;
+  const cols = Math.max(1, Math.floor(room.width / TILE));
+  const y = Math.max(0, room.height - TILE * 2);
+  const warnings = [];
+  for (let col = 0; col < cols; col += 1) {
+    if (col % 3 === 1 && Math.random() < 0.65) continue;
+    const kind = randomBossDropKind();
+    const width = kind === "lightning" ? TILE * 2 : TILE;
+    warnings.push({
+      x: Math.min(col * TILE, room.width - width),
+      y,
+      kind,
+      timer: boss.warningTime || 3,
+      duration: boss.warningTime || 3,
+      phase: true,
+    });
+  }
+  boss.phase.state = "warning";
+  boss.phase.timer = boss.warningTime || 3;
+  boss.phase.warnings = warnings;
+  boss.warnings = warnings;
+}
+
+function spawnDropBossPhaseGarbage(boss) {
+  for (const warning of boss.phase?.warnings || []) {
+    spawnFallingObject({
+      kind: warning.kind,
+      x: warning.x,
+      y: warning.y,
+      speed: boss.fallSpeed,
+      source: "dropBoss",
+      maxAge: 15,
+    });
+  }
+  boss.warnings = [];
+}
+
+function clearDropBossArenaObjects() {
+  const { room } = state;
+  for (const object of room.fallingObjects || []) {
+    if (object.source === "dropBoss" || object.source === "platformGenerator") object.dead = true;
+  }
+  room.fallingObjects = (room.fallingObjects || []).filter((object) => !object.dead);
+  room.platforms = (room.platforms || []).filter((platform) => !platform.generated || !platform.dead);
+  for (const boss of room.dropBosses || []) boss.warnings = [];
 }
 
 function updateDropBossMovement(boss, dt) {
