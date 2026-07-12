@@ -96,6 +96,7 @@ function loadRoom(index, spawn) {
   }
   state.selectedForm = state.form === "none" ? "red" : state.form;
   state.worldRot = state.checkpoint.worldRot ?? 0;
+  state.greenAfterimageMemory = false;
   state.helmetHeld = 0;
   state.choosing = false;
   updateHud();
@@ -457,6 +458,7 @@ function changeRoom(dir) {
   if (dir === "u") spawn = [(EXIT_BOTTOM_X + 1) * TILE + 4, ROOM_FLOOR * TILE - player.h - 2];
   if (dir === "d") spawn = [(EXIT_TOP_X + 1) * TILE + 4, 6];
   loadRoom(roomIndexForId(targetId), spawn);
+  clearGreenRoomState();
   logEvent("changeRoom", { dir, from: fromId, to: targetId, spawnX: Number(spawn[0].toFixed(2)), spawnY: Number(spawn[1].toFixed(2)) });
   return true;
 }
@@ -495,8 +497,8 @@ function seamlessChangeRoom(dir, link, fromId) {
     redQteBonus: old.redQteBonus,
     redMisses: old.redMisses,
     stun: old.stun,
-    graves: old.graves,
-    greenAfterimage: old.greenAfterimage,
+    graves: [],
+    greenAfterimage: false,
     plague: old.plague,
     plagueGrace: old.plagueGrace,
   };
@@ -507,8 +509,15 @@ function seamlessChangeRoom(dir, link, fromId) {
   state.player.whiteSurface = null;
   state.player.hook = null;
   state.player.hookTime = 0;
+  clearGreenRoomState();
   logEvent("changeRoom", { dir, from: fromId, to: targetId, seamless: true, spawnX: Number(spawn[0].toFixed(2)), spawnY: Number(spawn[1].toFixed(2)) });
   return true;
+}
+
+function clearGreenRoomState() {
+  state.player.graves = [];
+  state.player.greenAfterimage = false;
+  state.greenAfterimageMemory = false;
 }
 
 function normalizeRoomLink(link) {

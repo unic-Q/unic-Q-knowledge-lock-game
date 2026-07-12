@@ -559,15 +559,22 @@ export function updateGreen(state, input, dt) {
     }
   }
   if (input.down) {
-    player.graves.push({ x: player.x, y: player.y + player.h - 32 });
-    player.greenAfterimage = true;
-    player.vy = 0;
+    const grave = { x: player.x, y: player.y + player.h - 32, w: 28, h: 32 };
+    if (canPlaceGreenGrave(player, grave)) {
+      player.graves.push({ x: grave.x, y: grave.y });
+      player.greenAfterimage = true;
+      player.vy = 0;
+    }
   }
   if (player.greenAfterimage) {
     player.vy = 0;
   } else {
     player.vy += GREEN_GRAVITY * dt;
   }
+}
+
+function canPlaceGreenGrave(player, grave) {
+  return !player.graves.some((g) => rectsOverlap(grave, { x: g.x, y: g.y, w: 28, h: 32 }));
 }
 
 export function updateBlack(state, input, dt) {
