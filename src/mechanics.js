@@ -148,12 +148,11 @@ function moveWhiteOnSurface(state, dir, dt) {
       break;
     }
     player.whiteSurface = normalizeWhiteSurface(next);
-    setWhiteCenterCoord(player, player.whiteSurface, cornerCoordForTurn(player, surface.face, player.whiteSurface, edge));
+    placeWhiteAfterSurfaceTurn(player, surface, player.whiteSurface, edge);
     addPlagueSegment({ x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague }, player.whiteSurface, true, whiteSurfaceCoordSign(player.whiteSurface, dir));
     trimPlague(player);
     if (player.whiteSurface.face !== surface.face) {
-      player.whiteTurnCooldown = 0.08;
-      break;
+      player.whiteTurnCooldown = 0.02;
     }
   }
 }
@@ -222,6 +221,14 @@ function exteriorCornerSurface(surface, edgeIsMax) {
 function adjacentFaceForEdge(face, edgeIsMax) {
   if (face === 0 || face === 2) return edgeIsMax ? 1 : 3;
   return edgeIsMax ? 2 : 0;
+}
+
+function placeWhiteAfterSurfaceTurn(player, oldSurface, newSurface, oldEdge) {
+  const projectedCoord = whiteCenterCoord(player, newSurface);
+  const fallbackCoord = cornerCoordForTurn(player, oldSurface.face, newSurface, oldEdge);
+  const coord = Number.isFinite(projectedCoord) ? projectedCoord : fallbackCoord;
+  const limits = whiteCenterLimits(player, newSurface);
+  setWhiteCenterCoord(player, newSurface, Math.max(limits.min, Math.min(limits.max, coord)));
 }
 
 function cornerCoordForTurn(player, oldFace, newSurface, oldEdge) {
@@ -316,8 +323,8 @@ function placeWhiteOnSurface(player, surface) {
 
 function addPlagueSegment(player, surface, corner = false, pathDir = 0) {
   if (!surface) return;
-  const tx = -surface.ny;
-  const ty = surface.nx;
+  const tx = surface.nx === 0 ? 1 : 0;
+  const ty = surface.nx === 0 ? 0 : 1;
   const contact = contactInterval(player, surface);
   if (!contact) return;
 
