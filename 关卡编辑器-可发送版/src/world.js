@@ -482,6 +482,7 @@ export function parseRoom(data) {
   const blocks = [];
   const platforms = [];
   const breakablePlatforms = [];
+  const fallingObjects = [];
   const movingPlatforms = (data.movingPlatforms || []).map((item, index) => {
     const x = Number(item.x || 0);
     const y = Number(item.y || 0);
@@ -502,6 +503,45 @@ export function parseRoom(data) {
       pathIndex: 1,
       moveSpeed: Math.max(0.1, Number(item.speed || item.moveSpeed || 1)) * TILE,
       loop: item.loop !== false,
+      enabled: true,
+    };
+  });
+  const platformGenerators = (data.platformGenerators || []).map((item, index) => ({
+    index,
+    x: Number(item.x || 0) * TILE,
+    y: Number(item.y || 0) * TILE,
+    w: Math.max(1, Number(item.w || 1)) * TILE,
+    h: Math.max(1, Number(item.h || 1)) * TILE,
+    interval: Math.max(0.15, Number(item.interval || 1.2)),
+    speed: Math.max(0.1, Number(item.speed || 1.4)) * TILE,
+    timer: Math.max(0, Number(item.delay || 0)),
+    enabled: true,
+    targetKey: `platformGenerator:${index}`,
+  }));
+  const dropBosses = (data.dropBosses || []).map((item, index) => {
+    const w = Math.max(1, Number(item.w || 10)) * TILE;
+    const h = Math.max(1, Number(item.h || 10)) * TILE;
+    return {
+      index,
+      x: Number(item.x || Math.max(0, Math.floor(cols / 2 - 5))) * TILE,
+      y: Number(item.y || 0) * TILE,
+      w,
+      h,
+      zone: {
+        x: Number(item.zone?.x ?? 0) * TILE,
+        y: Number(item.zone?.y ?? Math.ceil(h / TILE)) * TILE,
+        w: Math.max(1, Number(item.zone?.w ?? cols)) * TILE,
+        h: Math.max(1, Number(item.zone?.h ?? rows)) * TILE,
+      },
+      interval: Math.max(0.25, Number(item.interval || 0.9)),
+      warningTime: Math.max(0.2, Number(item.warningTime || 0.65)),
+      fallSpeed: Math.max(0.5, Number(item.fallSpeed || 3.2)) * TILE,
+      moveSpeed: Math.max(0, Number(item.moveSpeed || 2)) * TILE,
+      timer: 0,
+      moveTimer: 1.2,
+      direction: 1,
+      warnings: [],
+      targetKey: `dropBoss:${index}`,
       enabled: true,
     };
   });
@@ -747,6 +787,9 @@ export function parseRoom(data) {
     blocks,
     platforms: platforms.concat(movingPlatforms),
     movingPlatforms,
+    platformGenerators,
+    dropBosses,
+    fallingObjects,
     breakablePlatforms,
     cracks,
     hidden,

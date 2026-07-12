@@ -38,6 +38,10 @@ export function activeBlocks(state) {
   for (const b of room.cracks) if (!b.broken) out.push(transformedRect(state, b));
   for (const b of room.erode) if (!b.broken) out.push(transformedRect(state, b));
   for (const b of room.breakablePlatforms || []) if (!b.broken) out.push(transformedRect(state, b));
+  for (const b of room.fallingObjects || []) {
+    if (b.dead || !b.solid) continue;
+    out.push(transformedRect(state, b));
+  }
   for (const b of room.gates || []) if (!b.open) out.push(transformedRect(state, b));
   if (!isGreenAfterimage(state)) {
     for (const g of player.graves) out.push({ x: g.x, y: g.y, w: 28, h: 32 });

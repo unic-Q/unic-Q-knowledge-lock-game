@@ -89,8 +89,8 @@ function loadRoom(index, spawn) {
   state.roomIndex = Math.max(0, Math.min(index, state.worldRooms.length - 1));
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
   applyBossRoomProgress();
-  canvas.width = state.room.width || WIDTH;
-  canvas.height = state.room.height || HEIGHT;
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
   state.visitedRooms.add(state.room.id);
   const start = spawn || state.room.spawn;
   state.player = makePlayer(start[0], start[1]);
@@ -211,6 +211,8 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     enemyPatrols: Array.isArray(room?.enemyPatrols) ? room.enemyPatrols : [],
     advancedEnemies: Array.isArray(room?.advancedEnemies) ? room.advancedEnemies : [],
     movingPlatforms: Array.isArray(room?.movingPlatforms) ? room.movingPlatforms : [],
+    platformGenerators: Array.isArray(room?.platformGenerators) ? room.platformGenerators : [],
+    dropBosses: Array.isArray(room?.dropBosses) ? room.dropBosses : [],
   };
 }
 
@@ -654,6 +656,9 @@ function update(dt) {
 
   updateBoss(dt);
   handleSwitches(dt);
+  updatePlatformGenerators(dt);
+  updateDropBosses(dt);
+  updateFallingObjects(dt);
   updateMovingPlatforms(dt);
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
@@ -792,6 +797,13 @@ function handlePickups() {
     state.shake = Math.max(state.shake, 2);
     updateHud();
   }
+  for (const object of room.fallingObjects || []) {
+    if (object.dead || object.kind !== "coin" || !rectsOverlap(player, object)) continue;
+    state.collectedCoins.add(`${room.id}:fall:${object.id}`);
+    object.dead = true;
+    state.shake = Math.max(state.shake, 2);
+    updateHud();
+  }
   if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
     state.worldRooms[state.roomIndex].helmet.taken = true;
     state.helmetOwned = true;
@@ -872,6 +884,21 @@ function handleHazards() {
     if (!rectTouchesSegment(player, hazard.a, hazard.b, 2)) continue;
     if (protectSideHazard(player, segmentHazardSide(player, hazard.a, hazard.b, 10))) continue;
     if (!surviveHazard(player)) return;
+  }
+  for (const object of room.fallingObjects || []) {
+    if (object.dead) continue;
+    if (object.kind === "spike" && rectsOverlap(expandedRollRect(player), object)) {
+      if (!surviveHazard(player)) return;
+    }
+    if (object.kind === "plague" && state.form !== "white" && rectsOverlap(player, object)) {
+      if (!surviveHazard(player)) return;
+    }
+    if (object.kind === "lightning" && state.form !== "green") {
+      const hazard = fallingLightningHazard(object);
+      if (!rectTouchesSegment(player, hazard.a, hazard.b, 3)) continue;
+      if (protectSideHazard(player, segmentHazardSide(player, hazard.a, hazard.b, 10))) continue;
+      if (!surviveHazard(player)) return;
+    }
   }
   if (!player.sideHazardContactThisFrame) {
     player.sideHazardGrace = 0;
@@ -1058,8 +1085,11 @@ function updateBoss(dt) {
 
 function handleBossHazards() {
   const boss = state.room.bosses?.[0];
-  if (!boss || boss.state === "waiting" || boss.state === "intro") return;
-  if (rectsOverlap(state.player, bossBody(boss))) surviveHazard(state.player);
+  if (boss && boss.state !== "waiting" && boss.state !== "intro" && rectsOverlap(state.player, bossBody(boss))) surviveHazard(state.player);
+  for (const dropBoss of state.room.dropBosses || []) {
+    if (dropBoss.enabled === false) continue;
+    if (rectsOverlap(state.player, dropBoss)) surviveHazard(state.player);
+  }
 }
 
 function updateEmitters(dt) {
@@ -1152,7 +1182,7 @@ function emitterDirection(emitter) {
 function updatePathMover(entity, dt) {
   if (!Array.isArray(entity.path) || entity.path.length < 2 || !entity.moveSpeed) return;
   if (entity.pathFinished) return;
-  entity.pathIndex ||= 1;
+  entity.pathIndex ??= 1;
   const target = entity.path[entity.pathIndex % entity.path.length];
   const cx = entity.x + entity.w / 2;
   const cy = entity.y + entity.h / 2;
@@ -1187,11 +1217,189 @@ function updateMovingPlatforms(dt) {
     updatePathMover(platform, dt);
     const dx = platform.x - previous.x;
     const dy = platform.y - previous.y;
+    platform.lastDx = dx;
+    platform.lastDy = dy;
     if (rider) {
       player.x += dx;
       player.y += dy;
     }
   }
+}
+
+function updatePlatformGenerators(dt) {
+  const { room } = state;
+  for (const generator of room.platformGenerators || []) {
+    if (!generator.enabled) continue;
+    generator.timer = (generator.timer || 0) - dt;
+    if (generator.timer > 0) continue;
+    generator.timer += generator.interval;
+    const cells = Math.max(1, Math.floor(generator.w / TILE));
+    const cell = Math.floor(Math.random() * cells);
+    spawnFallingObject({
+      kind: "platform",
+      x: generator.x + cell * TILE,
+      y: generator.y,
+      speed: generator.speed,
+      source: "platformGenerator",
+    });
+  }
+}
+
+function updateDropBosses(dt) {
+  const { room } = state;
+  for (const boss of room.dropBosses || []) {
+    if (!boss.enabled) continue;
+    updateDropBossMovement(boss, dt);
+    boss.timer = (boss.timer || 0) - dt;
+    if (boss.timer <= 0) {
+      boss.timer += boss.interval;
+      queueBossDrop(boss);
+    }
+    for (const warning of boss.warnings || []) {
+      warning.timer -= dt;
+      if (warning.timer <= 0) spawnFallingObject({
+        kind: warning.kind,
+        x: warning.x,
+        y: warning.y,
+        speed: boss.fallSpeed,
+        source: "dropBoss",
+      });
+    }
+    boss.warnings = (boss.warnings || []).filter((warning) => warning.timer > 0);
+  }
+}
+
+function updateDropBossMovement(boss, dt) {
+  const zone = boss.zone || { x: 0, w: state.room.width };
+  const minX = zone.x;
+  const maxX = zone.x + zone.w - boss.w;
+  boss.moveTimer = (boss.moveTimer || 0) - dt;
+  if (boss.moveTimer <= 0) {
+    boss.moveTimer = 0.7 + Math.random() * 1.4;
+    boss.direction = Math.random() < 0.25 ? 0 : (Math.random() < 0.5 ? -1 : 1);
+  }
+  boss.x += (boss.direction || 0) * boss.moveSpeed * dt;
+  if (boss.x <= minX) {
+    boss.x = minX;
+    boss.direction = Math.random() < 0.35 ? 0 : 1;
+  } else if (boss.x >= maxX) {
+    boss.x = maxX;
+    boss.direction = Math.random() < 0.35 ? 0 : -1;
+  }
+}
+
+function queueBossDrop(boss) {
+  const zone = boss.zone || { x: 0, y: TILE * 10, w: state.room.width, h: TILE };
+  const cols = Math.max(1, Math.floor(zone.w / TILE));
+  const bossCenter = boss.x + boss.w / 2;
+  const roomCenter = state.room.width / 2;
+  let minCol = 0;
+  let maxCol = cols - 1;
+  if (bossCenter < roomCenter - TILE && Math.random() < 0.7) maxCol = Math.max(0, Math.floor(cols * 0.62));
+  if (bossCenter > roomCenter + TILE && Math.random() < 0.7) minCol = Math.min(cols - 1, Math.floor(cols * 0.38));
+  const col = minCol + Math.floor(Math.random() * (maxCol - minCol + 1));
+  const rowCount = Math.max(1, Math.floor(zone.h / TILE));
+  const row = Math.floor(Math.random() * rowCount);
+  const kind = randomBossDropKind();
+  const warningWidth = kind === "lightning" ? TILE * 2 : TILE;
+  boss.warnings ||= [];
+  boss.warnings.push({
+    x: Math.min(zone.x + col * TILE, state.room.width - warningWidth),
+    y: zone.y + row * TILE,
+    kind,
+    timer: boss.warningTime,
+    duration: boss.warningTime,
+  });
+}
+
+function randomBossDropKind() {
+  const roll = Math.random();
+  if (roll < 0.01) return "coin";
+  if (roll < 0.11) return "lightning";
+  if (roll < 0.25) return "anchor";
+  if (roll < 0.41) return "wall";
+  if (roll < 0.56) return "breakable";
+  if (roll < 0.72) return "spike";
+  if (roll < 0.86) return "enemy";
+  return "plague";
+}
+
+function spawnFallingObject({ kind, x, y, speed, source }) {
+  const { room } = state;
+  room.fallingObjects ||= [];
+  const width = kind === "lightning" ? TILE * 2 : TILE;
+  const object = {
+    id: `fall:${Date.now()}:${Math.random()}`,
+    kind,
+    x: Math.min(x, room.width - width),
+    y,
+    w: width,
+    h: kind === "platform" || kind === "breakable" ? TILE / 2 : TILE,
+    vy: Math.max(0.1, speed || TILE * 2),
+    solid: kind === "wall",
+    face: "up",
+    moving: kind === "platform" || kind === "breakable",
+    generated: true,
+    source,
+  };
+  if (kind === "platform" || kind === "breakable") room.platforms.push(object);
+  room.fallingObjects.push(object);
+}
+
+function fallingLightningHazard(object) {
+  return {
+    a: { x: object.x + 10, y: object.y + object.h / 2 },
+    b: { x: object.x + object.w - 10, y: object.y + object.h / 2 },
+  };
+}
+
+function updateFallingObjects(dt) {
+  const { room, player } = state;
+  for (const object of room.fallingObjects || []) {
+    if (object.dead) continue;
+    const previous = { x: object.x, y: object.y, w: object.w, h: object.h };
+    const carrier = findCarrierPlatform(object);
+    if (carrier) {
+      object.x += carrier.lastDx || 0;
+      object.y = carrier.y - object.h + (carrier.lastDy || 0);
+      object.vy = Math.max(0, carrier.lastDy ? (carrier.lastDy / Math.max(dt, 0.001)) : 0);
+    } else {
+      object.y += object.vy * dt;
+    }
+    const dx = object.x - previous.x;
+    const dy = object.y - previous.y;
+    object.lastDx = dx;
+    object.lastDy = dy;
+    if ((object.kind === "platform" || object.kind === "breakable") && isStandingOn(player, previous)) {
+      player.x += dx;
+      player.y += dy;
+    }
+    if (object.y > room.height + TILE * 3) object.dead = true;
+  }
+  room.fallingObjects = (room.fallingObjects || []).filter((object) => !object.dead);
+  room.platforms = (room.platforms || []).filter((platform) => !platform.generated || !platform.dead);
+}
+
+function findCarrierPlatform(object) {
+  const foot = { x: object.x + 3, y: object.y + object.h, w: object.w - 6, h: 3 };
+  for (const platform of state.room.platforms || []) {
+    if (platform === object || platform.dead) continue;
+    if ((platform.face || "up") !== "up") continue;
+    if (rectsOverlap(foot, platform)) return platform;
+  }
+  for (const block of activeBlocks(state)) {
+    if (block === object) continue;
+    if (rectsOverlap(foot, block)) return { ...block, lastDx: 0, lastDy: 0 };
+  }
+  return null;
+}
+
+function isStandingOn(actor, platform) {
+  return actor.y + actor.h <= platform.y + 5 &&
+    actor.y + actor.h >= platform.y - 6 &&
+    actor.x + actor.w > platform.x + 3 &&
+    actor.x < platform.x + platform.w - 3 &&
+    actor.vy >= -20;
 }
 
 function protectSideHazard(player, side) {
@@ -1420,6 +1628,12 @@ function handleSwitches(dt = 0) {
   for (const platform of room.movingPlatforms || []) {
     platform.enabled = targetEnabled(platform.targetKey, true);
   }
+  for (const generator of room.platformGenerators || []) {
+    generator.enabled = targetEnabled(generator.targetKey, true);
+  }
+  for (const boss of room.dropBosses || []) {
+    boss.enabled = targetEnabled(boss.targetKey, true);
+  }
 }
 
 function targetKeyForControlTarget(target) {
@@ -1431,6 +1645,8 @@ function targetKeyForControlTarget(target) {
   if (target.type === "emitter") return `emitter:${target.index}`;
   if (target.type === "enemy") return `enemy:${target.index}`;
   if (target.type === "movingPlatform") return `movingPlatform:${target.index}`;
+  if (target.type === "platformGenerator") return `platformGenerator:${target.index}`;
+  if (target.type === "dropBoss") return `dropBoss:${target.index}`;
   return `cell:${target.x},${target.y}`;
 }
 
@@ -1627,6 +1843,19 @@ function handleEnemies() {
     } else if (blackStomp) {
       damageEnemy(enemy, 1);
       player.vy = Math.min(player.vy, -360);
+    } else if (player.rollTimer > 0) {
+      refreshRoll(player);
+    } else {
+      respawn("enemy");
+      return;
+    }
+  }
+  for (const object of room.fallingObjects || []) {
+    if (object.dead || object.kind !== "enemy") continue;
+    if (!rectsOverlap(player, object)) continue;
+    if (state.form === "red" && player.redDash) {
+      object.dead = true;
+      player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
     } else if (player.rollTimer > 0) {
       refreshRoll(player);
     } else {

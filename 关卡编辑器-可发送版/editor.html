@@ -245,6 +245,7 @@
       { char: '-', name: '上平台低', category: '平台', color: '#758698', desc: '朝上的低位半砖平台' },
       { char: 'U', name: '易碎平台', category: '平台', color: '#9a8065', desc: '双向实体；站上2秒碎裂，8秒复原' },
       { char: 'V', name: '移动平台', category: '平台', color: '#7da7bd', desc: '拖动设置移动距离；可被触发器控制运动' },
+      { char: '1', name: '平台生成器', category: '机关', color: '#7da7bd', desc: '拖动框选区域，隐形生成下落平台' },
       { char: 'L', name: '左平台', category: '平台', color: '#758698', desc: '朝左的半砖平台' },
       { char: 'J', name: '右平台', category: '平台', color: '#758698', desc: '朝右的半砖平台' },
       { char: '.', name: '空地', category: '平台', color: '#2a2e38', desc: '空气/可通行' },
@@ -254,6 +255,7 @@
       { char: '!', name: '尖刺', category: '危险', color: '#9c3038', desc: '伤害陷阱，可被开关控制' },
       { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '拖动设置直线巡逻敌人' },
       { char: 'Z', name: 'Boss', category: '危险', color: '#49364f', desc: '3x3悬浮Boss（字符为左上锚点）' },
+      { char: '2', name: '掉落Boss', category: '危险', color: '#7b4a85', desc: '拖动框选预警掉落区域，生成10x10掉落Boss' },
       { char: 'N', name: '高级敌人', category: '危险', color: '#7d3f7d', desc: '点选路径点，完成后设置大小和速度' },
       { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
       { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
@@ -286,12 +288,16 @@
     let emitters = [];
     let sequencers = [];
     let movingPlatforms = [];
+    let platformGenerators = [];
+    let dropBosses = [];
     let targetDefaults = {};
     let activeLightningChain = -1;
     let enemyPatrols = [];
     let advancedEnemies = [];
     let emitterDrag = null;
     let movingPlatformDrag = null;
+    let platformGeneratorDrag = null;
+    let dropBossDrag = null;
     let pendingControlTargets = [];
     let enemyDrag = null;
     let pathDraft = null;
@@ -361,6 +367,20 @@
       enemyPatrols = enemyPatrols.filter(patrol =>
         patrol.start.x < COLS && patrol.start.y < ROWS && patrol.end.x < COLS && patrol.end.y < ROWS
       );
+      platformGenerators = platformGenerators.filter(item =>
+        item.x < COLS && item.y < ROWS && item.x + item.w <= COLS && item.y + item.h <= ROWS
+      );
+      dropBosses = dropBosses.filter(item =>
+        item.x < COLS && item.y < ROWS && item.x + item.w <= COLS && item.y + item.h <= ROWS
+      ).map(item => ({
+        ...item,
+        zone: {
+          x: Math.max(0, Math.min(COLS - 1, item.zone?.x || 0)),
+          y: Math.max(0, Math.min(ROWS - 1, item.zone?.y || 0)),
+          w: Math.max(1, Math.min(COLS - (item.zone?.x || 0), item.zone?.w || COLS)),
+          h: Math.max(1, Math.min(ROWS - (item.zone?.y || 0), item.zone?.h || ROWS)),
+        }
+      }));
       saveRoomData();
       render();
     }
@@ -400,6 +420,8 @@
         enemyPatrols: [],
         advancedEnemies: [],
         movingPlatforms: [],
+        platformGenerators: [],
+        dropBosses: [],
         roomSize: size,
         spawn: defaultSpawn(size)
       };
@@ -512,7 +534,7 @@
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
             const size = roomSizeFromData(parsed);
-            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], spawn: defaultSpawn(size) };
+            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], spawn: defaultSpawn(size) };
           }
           const size = roomSizeFromData(parsed);
           return {
@@ -527,6 +549,8 @@
             enemyPatrols: parsed.enemyPatrols || [],
             advancedEnemies: parsed.advancedEnemies || [],
             movingPlatforms: parsed.movingPlatforms || [],
+            platformGenerators: parsed.platformGenerators || [],
+            dropBosses: parsed.dropBosses || [],
             spawn: parsed.spawn || defaultSpawn(size)
           };
         } catch {
@@ -554,6 +578,8 @@
         enemyPatrols,
         advancedEnemies,
         movingPlatforms,
+        platformGenerators,
+        dropBosses,
         spawn
       };
       localStorage.setItem(`room_${currentRoom}`, JSON.stringify(data));
@@ -578,6 +604,8 @@
         enemyPatrols,
         advancedEnemies,
         movingPlatforms,
+        platformGenerators,
+        dropBosses,
         spawn
       };
     }
@@ -594,7 +622,9 @@
         !(data?.sequencers || []).length &&
         !(data?.enemyPatrols || []).length &&
         !(data?.advancedEnemies || []).length &&
-        !(data?.movingPlatforms || []).length;
+        !(data?.movingPlatforms || []).length &&
+        !(data?.platformGenerators || []).length &&
+        !(data?.dropBosses || []).length;
     }
 
     async function exportedRoomData(roomId) {
@@ -618,6 +648,8 @@
           enemyPatrols: found.enemyPatrols || [],
           advancedEnemies: found.advancedEnemies || [],
           movingPlatforms: found.movingPlatforms || [],
+          platformGenerators: found.platformGenerators || [],
+          dropBosses: found.dropBosses || [],
           spawn: found.spawn || defaultSpawn(size)
         };
       } catch {
@@ -649,6 +681,8 @@
             enemyPatrols: roomData.enemyPatrols || [],
             advancedEnemies: roomData.advancedEnemies || [],
             movingPlatforms: roomData.movingPlatforms || [],
+            platformGenerators: roomData.platformGenerators || [],
+            dropBosses: roomData.dropBosses || [],
             spawn: roomData.spawn || defaultSpawn(size)
           }));
         }
@@ -688,6 +722,8 @@
             enemyPatrols: target.enemyPatrols || [],
             advancedEnemies: target.advancedEnemies || [],
             movingPlatforms: target.movingPlatforms || [],
+            platformGenerators: target.platformGenerators || [],
+            dropBosses: target.dropBosses || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -701,7 +737,7 @@
       const parsed = JSON.parse(stored);
       const size = roomSizeFromData(parsed);
       const data = Array.isArray(parsed)
-        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], spawn: defaultSpawn(size) }
+        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], spawn: defaultSpawn(size) }
         : {
           roomSize: size,
           blocks: normalizeGrid(parsed.blocks, size),
@@ -714,6 +750,8 @@
           enemyPatrols: parsed.enemyPatrols || [],
           advancedEnemies: parsed.advancedEnemies || [],
           movingPlatforms: parsed.movingPlatforms || [],
+          platformGenerators: parsed.platformGenerators || [],
+          dropBosses: parsed.dropBosses || [],
           spawn: parsed.spawn || defaultSpawn(size)
         };
       return {
@@ -730,6 +768,8 @@
         enemyPatrols: data.enemyPatrols,
         advancedEnemies: data.advancedEnemies || [],
         movingPlatforms: data.movingPlatforms || [],
+        platformGenerators: data.platformGenerators || [],
+        dropBosses: data.dropBosses || [],
         spawn: data.spawn
       };
     }
@@ -905,6 +945,8 @@
           enemyPatrols: data.enemyPatrols || [],
           advancedEnemies: data.advancedEnemies || [],
           movingPlatforms: data.movingPlatforms || [],
+          platformGenerators: data.platformGenerators || [],
+          dropBosses: data.dropBosses || [],
         };
       });
       const linksByRoom = roomLinksFromMap();
@@ -967,9 +1009,13 @@
       enemyPatrols = data.enemyPatrols || [];
       advancedEnemies = data.advancedEnemies || [];
       movingPlatforms = data.movingPlatforms || [];
+      platformGenerators = data.platformGenerators || [];
+      dropBosses = data.dropBosses || [];
       pendingControlTargets = [];
       enemyDrag = null;
       movingPlatformDrag = null;
+      platformGeneratorDrag = null;
+      dropBossDrag = null;
       pathDraft = null;
       spawn = data.spawn || defaultSpawn();
       render();
@@ -1434,6 +1480,27 @@
 
     function drawEditorMechanisms() {
       ctx.save();
+      for (const generator of platformGenerators) {
+        ctx.fillStyle = 'rgba(125,167,189,0.16)';
+        ctx.strokeStyle = '#7da7bd';
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(generator.x * TILE + 1.5, generator.y * TILE + 1.5, generator.w * TILE - 3, generator.h * TILE - 3);
+        ctx.setLineDash([]);
+      }
+      for (const boss of dropBosses) {
+        const zone = boss.zone || { x: 0, y: 0, w: 1, h: 1 };
+        ctx.fillStyle = 'rgba(244,201,93,0.12)';
+        ctx.strokeStyle = '#f4c95d';
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(zone.x * TILE + 1.5, zone.y * TILE + 1.5, zone.w * TILE - 3, zone.h * TILE - 3);
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(123,74,133,0.34)';
+        ctx.strokeStyle = '#7b4a85';
+        ctx.fillRect(boss.x * TILE, boss.y * TILE, boss.w * TILE, boss.h * TILE);
+        ctx.strokeRect(boss.x * TILE + 0.5, boss.y * TILE + 0.5, boss.w * TILE - 1, boss.h * TILE - 1);
+      }
+      if (platformGeneratorDrag) drawDragRect(platformGeneratorDrag, '#7da7bd');
+      if (dropBossDrag) drawDragRect(dropBossDrag, '#f4c95d');
       for (const seq of sequencers) {
         ctx.fillStyle = 'rgba(202,166,255,0.26)';
         ctx.strokeStyle = '#caa6ff';
@@ -1483,6 +1550,8 @@
       if (target.type === 'emitter') return `emitter:${target.index}`;
       if (target.type === 'enemy') return `enemy:${target.index}`;
       if (target.type === 'movingPlatform') return `movingPlatform:${target.index}`;
+      if (target.type === 'platformGenerator') return `platformGenerator:${target.index}`;
+      if (target.type === 'dropBoss') return `dropBoss:${target.index}`;
       return `cell:${target.x},${target.y}`;
     }
 
@@ -1494,6 +1563,16 @@
       if (emitterIndex >= 0) return { type: 'emitter', index: emitterIndex };
       const movingIndex = movingPlatforms.findIndex(item => Math.floor(item.x) === x && Math.floor(item.y) === y);
       if (movingIndex >= 0) return { type: 'movingPlatform', index: movingIndex };
+      const generatorIndex = platformGenerators.findIndex(item =>
+        x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h
+      );
+      if (generatorIndex >= 0) return { type: 'platformGenerator', index: generatorIndex };
+      const dropBossIndex = dropBosses.findIndex(item => {
+        const zone = item.zone || { x: item.x, y: item.y, w: item.w, h: item.h };
+        return (x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h) ||
+          (x >= zone.x && x < zone.x + zone.w && y >= zone.y && y < zone.y + zone.h);
+      });
+      if (dropBossIndex >= 0) return { type: 'dropBoss', index: dropBossIndex };
       const enemyIndex = enemyTargetIndexAt(x, y);
       if (enemyIndex >= 0) return { type: 'enemy', index: enemyIndex };
       return null;
@@ -1606,6 +1685,28 @@
       ctx.restore();
     }
 
+    function drawDragRect(drag, color) {
+      const r = normalizedDragRect(drag.start, drag.current);
+      ctx.save();
+      ctx.fillStyle = `${color}22`;
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 4]);
+      ctx.fillRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
+      ctx.strokeRect(r.x * TILE + 1.5, r.y * TILE + 1.5, r.w * TILE - 3, r.h * TILE - 3);
+      ctx.restore();
+    }
+
+    function normalizedDragRect(start, end) {
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      return {
+        x,
+        y,
+        w: Math.max(1, Math.abs(end.x - start.x) + 1),
+        h: Math.max(1, Math.abs(end.y - start.y) + 1),
+      };
+    }
+
     function drawMovingPlatformPaths() {
       ctx.save();
       ctx.setLineDash([5, 5]);
@@ -1709,6 +1810,18 @@
         ctx.strokeStyle = chosen ? '#f4c95d' : `rgba(125,167,189,${Math.min(1, pulse + 0.2)})`;
         ctx.lineWidth = chosen ? 4 : 3;
         ctx.strokeRect(platform.x * TILE + 3, platform.y * TILE + 3, TILE - 6, TILE / 2 - 3);
+      });
+      platformGenerators.forEach((generator, index) => {
+        const chosen = selected.has(`platformGenerator:${index}`);
+        ctx.strokeStyle = chosen ? '#f4c95d' : `rgba(125,167,189,${Math.min(1, pulse + 0.2)})`;
+        ctx.lineWidth = chosen ? 4 : 3;
+        ctx.strokeRect(generator.x * TILE + 2, generator.y * TILE + 2, generator.w * TILE - 4, generator.h * TILE - 4);
+      });
+      dropBosses.forEach((boss, index) => {
+        const chosen = selected.has(`dropBoss:${index}`);
+        ctx.strokeStyle = chosen ? '#f4c95d' : `rgba(202,166,255,${Math.min(1, pulse + 0.2)})`;
+        ctx.lineWidth = chosen ? 4 : 3;
+        ctx.strokeRect(boss.x * TILE + 2, boss.y * TILE + 2, boss.w * TILE - 4, boss.h * TILE - 4);
       });
       ctx.restore();
     }
@@ -1854,7 +1967,7 @@
       const index = pendingControlTargets.findIndex(item => controlTargetKey(item) === key);
       if (index >= 0) pendingControlTargets.splice(index, 1);
       else {
-        if (['plague', 'lightning', 'emitter', 'movingPlatform'].includes(target.type) && targetDefaults[key] === undefined) {
+        if (['plague', 'lightning', 'emitter', 'movingPlatform', 'platformGenerator', 'dropBoss'].includes(target.type) && targetDefaults[key] === undefined) {
           targetDefaults[key] = confirm('这个目标默认是否存在/启用？确定=默认存在，取消=默认隐藏。触发后会切换状态。');
         }
         pendingControlTargets.push(target);
@@ -1876,6 +1989,8 @@
       if (target.type === 'emitter') return Boolean(emitters[target.index]);
       if (target.type === 'enemy') return Boolean(enemyTargetByIndex(target.index));
       if (target.type === 'movingPlatform') return Boolean(movingPlatforms[target.index]);
+      if (target.type === 'platformGenerator') return Boolean(platformGenerators[target.index]);
+      if (target.type === 'dropBoss') return Boolean(dropBosses[target.index]);
       return ['D', '!', 'C'].includes(grid[target.y]?.[target.x]);
     }
 
@@ -1900,7 +2015,7 @@
         return controlTargetExists(target);
       });
       if (!pendingControlTargets.length) {
-        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口、敌人、移动平台。');
+        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口、敌人、移动平台、平台生成器、掉落Boss。');
         return;
       }
       controlBindings = controlBindings.filter(binding => binding.switch.x !== x || binding.switch.y !== y);
@@ -1947,6 +2062,14 @@
         label: `移动平台 ${index + 1} (${platform.x},${platform.y})`,
         target: { type: 'movingPlatform', index }
       }));
+      platformGenerators.forEach((generator, index) => options.push({
+        label: `平台生成器 ${index + 1} (${generator.x},${generator.y})`,
+        target: { type: 'platformGenerator', index }
+      }));
+      dropBosses.forEach((boss, index) => options.push({
+        label: `掉落Boss ${index + 1} (${boss.x},${boss.y})`,
+        target: { type: 'dropBoss', index }
+      }));
       let enemyIndex = 0;
       for (let ty = 0; ty < ROWS; ty += 1) {
         for (let tx = 0; tx < COLS; tx += 1) {
@@ -1965,7 +2088,7 @@
     function openSequencerPanel(x, y) {
       const options = sequencerTargetOptions();
       if (!options.length) {
-        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口或敌人。');
+        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口、敌人、移动平台、平台生成器或掉落Boss。');
         return;
       }
       const overlay = document.createElement('div');
@@ -2283,6 +2406,66 @@
       render();
     }
 
+    function finishPlatformGeneratorPlacement() {
+      if (!platformGeneratorDrag) return;
+      const rect = normalizedDragRect(platformGeneratorDrag.start, platformGeneratorDrag.current);
+      if (rect.w < 1 || rect.h < 1) {
+        platformGeneratorDrag = null;
+        render();
+        return;
+      }
+      const interval = clampNumber(prompt('平台生成间隔（秒，0.15-10）', '1.2'), 0.15, 10, 1.2);
+      const speed = clampNumber(prompt('平台下落速度（格/秒，0.1-10）', '1.4'), 0.1, 10, 1.4);
+      platformGenerators = platformGenerators.filter(item =>
+        !(item.x === rect.x && item.y === rect.y && item.w === rect.w && item.h === rect.h)
+      );
+      platformGenerators.push({
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+        interval,
+        speed,
+      });
+      platformGeneratorDrag = null;
+      saveRoomData();
+      render();
+    }
+
+    function finishDropBossPlacement() {
+      if (!dropBossDrag) return;
+      const zone = normalizedDragRect(dropBossDrag.start, dropBossDrag.current);
+      if (zone.w < 1 || zone.h < 1) {
+        dropBossDrag = null;
+        render();
+        return;
+      }
+      const interval = clampNumber(prompt('Boss 掉落间隔（秒，0.25-10）', '0.9'), 0.25, 10, 0.9);
+      const warningTime = clampNumber(prompt('预警时间（秒，0.2-3）', '0.65'), 0.2, 3, 0.65);
+      const fallSpeed = clampNumber(prompt('掉落速度（格/秒，0.5-20）', '3.2'), 0.5, 20, 3.2);
+      const moveSpeed = clampNumber(prompt('Boss 横向速度（格/秒，0-10）', '2'), 0, 10, 2);
+      const bossW = 10;
+      const bossH = 10;
+      const zoneCenter = zone.x + zone.w / 2;
+      const bossX = Math.max(0, Math.min(COLS - bossW, Math.floor(zoneCenter - bossW / 2)));
+      const bossY = Math.max(0, Math.min(ROWS - bossH, Math.floor(zone.y - bossH)));
+      dropBosses = dropBosses.filter(item => item.x !== bossX || item.y !== bossY);
+      dropBosses.push({
+        x: bossX,
+        y: bossY,
+        w: bossW,
+        h: bossH,
+        zone,
+        interval,
+        warningTime,
+        fallSpeed,
+        moveSpeed,
+      });
+      dropBossDrag = null;
+      saveRoomData();
+      render();
+    }
+
     function snapDirection(dx, dy) {
       if (dx === 0 && dy === 0) return { x: 1, y: 0 };
       const angle = Math.atan2(dy, dx);
@@ -2588,6 +2771,16 @@
         render();
         return;
       }
+      if (platformGeneratorDrag) {
+        platformGeneratorDrag.current = { x, y };
+        render();
+        return;
+      }
+      if (dropBossDrag) {
+        dropBossDrag.current = { x, y };
+        render();
+        return;
+      }
       if (isPainting) paintAt(e);
       else render();
     });
@@ -2600,6 +2793,8 @@
       mapDrag = null;
       mapPan = null;
       movingPlatformDrag = null;
+      platformGeneratorDrag = null;
+      dropBossDrag = null;
       hoveredMapRoom = null;
       render();
     });
@@ -2654,6 +2849,20 @@
         render();
         return;
       }
+      if (editorMode === 'tile' && currentChar === '1' && e.button === 0) {
+        const cell = getCell(e);
+        platformGeneratorDrag = { start: cell, current: cell };
+        isPainting = false;
+        render();
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === '2' && e.button === 0) {
+        const cell = getCell(e);
+        dropBossDrag = { start: cell, current: cell };
+        isPainting = false;
+        render();
+        return;
+      }
       if (editorMode === 'tile' && currentChar === 'Y' && e.button === 0) {
         addAdvancedPathPoint('advancedEmitter', getCell(e));
         isPainting = false;
@@ -2676,6 +2885,14 @@
       }
       if (movingPlatformDrag) {
         finishMovingPlatformPlacement();
+        return;
+      }
+      if (platformGeneratorDrag) {
+        finishPlatformGeneratorPlacement();
+        return;
+      }
+      if (dropBossDrag) {
+        finishDropBossPlacement();
         return;
       }
       if (mapDrag) {
@@ -2794,6 +3011,8 @@
       enemyPatrols = [];
       advancedEnemies = [];
       movingPlatforms = [];
+      platformGenerators = [];
+      dropBosses = [];
       pathDraft = null;
       pendingControlTargets = [];
       saveRoomData();
@@ -2847,6 +3066,8 @@
               enemyPatrols: roomData.enemyPatrols || [],
               advancedEnemies: roomData.advancedEnemies || [],
               movingPlatforms: roomData.movingPlatforms || [],
+              platformGenerators: roomData.platformGenerators || [],
+              dropBosses: roomData.dropBosses || [],
               spawn: roomData.spawn || defaultSpawn(size)
             };
             localStorage.setItem(`room_${roomData.room}`, JSON.stringify(normalized));
@@ -2864,6 +3085,8 @@
           enemyPatrols = data.enemyPatrols || [];
           advancedEnemies = data.advancedEnemies || [];
           movingPlatforms = data.movingPlatforms || [];
+          platformGenerators = data.platformGenerators || [];
+          dropBosses = data.dropBosses || [];
           spawn = data.spawn || defaultSpawn();
           if (data.room) currentRoom = data.room;
           saveRoomData();
@@ -2888,6 +3111,8 @@
         enemyPatrols = [];
         advancedEnemies = [];
         movingPlatforms = [];
+        platformGenerators = [];
+        dropBosses = [];
         pathDraft = null;
         pendingControlTargets = [];
         spawn = defaultSpawn();
@@ -2917,6 +3142,8 @@
             enemyPatrols: target.enemyPatrols || [],
             advancedEnemies: target.advancedEnemies || [],
             movingPlatforms: target.movingPlatforms || [],
+            platformGenerators: target.platformGenerators || [],
+            dropBosses: target.dropBosses || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -2943,6 +3170,8 @@
         enemyPatrols: roomData.enemyPatrols || [],
         advancedEnemies: roomData.advancedEnemies || [],
         movingPlatforms: roomData.movingPlatforms || [],
+        platformGenerators: roomData.platformGenerators || [],
+        dropBosses: roomData.dropBosses || [],
         playtestLoadout: loadout
       };
       localStorage.setItem('editorPlaytestRoom', JSON.stringify(data));

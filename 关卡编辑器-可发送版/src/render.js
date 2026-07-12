@@ -2,7 +2,7 @@
 
 import {
   BLACK_GRAVITY, BLACK_JUMP, COLS, FORMS, GRAVITY, GREEN_GRAVITY, GREEN_JUMP, GREEN_MOVE,
-  JUMP, MOVE, RED_DASH_DISTANCE, RED_QTE_READY, RED_QTE_TIME, ROWS, TILE,
+  HEIGHT, JUMP, MOVE, RED_DASH_DISTANCE, RED_QTE_READY, RED_QTE_TIME, ROWS, TILE, WIDTH,
   WHITE_HOOK_RANGE, WHITE_PLAGUE_SPEED, WHITE_SURFACE_SPEED,
 } from "./constants.js";
 import { transformedRect, isGreenAfterimage, rotatePoint } from "./physics.js";
@@ -171,6 +171,78 @@ function drawProjectile(ctx, projectile) {
   ctx.arc(projectile.x + projectile.w / 2, projectile.y + projectile.h / 2, projectile.w / 2, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+}
+
+function drawFallingObject(ctx, object) {
+  if (object.kind === "platform" || object.kind === "breakable") {
+    drawRect(ctx, object, object.kind === "breakable" ? "#9a8065" : "#7da7bd", object.kind === "breakable" ? "#4f4035" : "#2e6f88");
+    return;
+  }
+  if (object.kind === "wall") {
+    drawRect(ctx, object, "#607487", "#314252");
+    return;
+  }
+  if (object.kind === "spike") {
+    drawHazard(ctx, object);
+    return;
+  }
+  if (object.kind === "enemy") {
+    drawEnemy(ctx, { ...object, alive: true, advanced: false });
+    return;
+  }
+  if (object.kind === "coin") {
+    drawCoin(ctx, object);
+    return;
+  }
+  if (object.kind === "anchor") {
+    ctx.fillStyle = "#f4c95d";
+    ctx.beginPath();
+    ctx.arc(object.x + object.w / 2, object.y + object.h / 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (object.kind === "lightning") {
+    ctx.strokeStyle = "#35f28a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(object.x + 10, object.y + object.h / 2);
+    ctx.lineTo(object.x + object.w - 10, object.y + object.h / 2);
+    ctx.stroke();
+    ctx.fillStyle = "#35f28a";
+    ctx.beginPath();
+    ctx.arc(object.x + 10, object.y + object.h / 2, 4, 0, Math.PI * 2);
+    ctx.arc(object.x + object.w - 10, object.y + object.h / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.fillStyle = "#dff2d2";
+  ctx.beginPath();
+  ctx.ellipse(object.x + object.w / 2, object.y + object.h / 2, object.w * 0.42, object.h * 0.28, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDropBoss(ctx, boss) {
+  ctx.save();
+  ctx.fillStyle = boss.enabled === false ? "#3b3340" : "#49364f";
+  ctx.strokeStyle = "#f4c95d";
+  ctx.lineWidth = 3;
+  ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+  ctx.strokeRect(boss.x + 0.5, boss.y + 0.5, boss.w - 1, boss.h - 1);
+  ctx.fillStyle = "#f4c95d";
+  ctx.fillRect(boss.x + boss.w * 0.28, boss.y + boss.h * 0.34, boss.w * 0.08, boss.h * 0.08);
+  ctx.fillRect(boss.x + boss.w * 0.64, boss.y + boss.h * 0.34, boss.w * 0.08, boss.h * 0.08);
+  ctx.restore();
+  for (const warning of boss.warnings || []) {
+    const ratio = Math.max(0, Math.min(1, warning.timer / (warning.duration || 1)));
+    const width = warning.kind === "lightning" ? TILE * 2 : TILE;
+    ctx.save();
+    ctx.fillStyle = `rgba(244, 201, 93, ${0.12 + (1 - ratio) * 0.2})`;
+    ctx.strokeStyle = "#f4c95d";
+    ctx.lineWidth = 2;
+    ctx.fillRect(warning.x + 2, warning.y + 2, width - 4, TILE - 4);
+    ctx.strokeRect(warning.x + 1.5, warning.y + 1.5, width - 3, TILE - 3);
+    ctx.restore();
+  }
 }
 
 function drawSwitch(ctx, s) {
@@ -461,6 +533,9 @@ export function draw(ctx, state) {
   if (state.shake > 0) ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
   ctx.fillStyle = "#dfe8ed";
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const camera = roomCamera(room, player, ctx.canvas);
+  ctx.save();
+  ctx.translate(-camera.x, -camera.y);
 
   for (const b of room.blocks) if (!b.broken) {
     const r = transformedRect(state, b);
@@ -491,7 +566,9 @@ export function draw(ctx, state) {
   for (const h of room.hazards || []) if (!h.disabled) drawHazard(ctx, transformedRect(state, h));
   for (const emitter of room.emitters || []) drawEmitter(ctx, emitter, state);
   for (const projectile of room.projectiles || []) drawProjectile(ctx, projectile);
+  for (const object of room.fallingObjects || []) if (!object.dead) drawFallingObject(ctx, object);
   for (const boss of room.bosses || []) drawBoss(ctx, boss);
+  for (const boss of room.dropBosses || []) drawDropBoss(ctx, boss);
   for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
   const lightningDisabled = Boolean(room.lightningDisabled);
   if (!lightningDisabled) {
@@ -603,6 +680,7 @@ export function draw(ctx, state) {
   ctx.restore();
 
   drawRedQte(ctx, player);
+  ctx.restore();
   if (state.form === "black") {
     ctx.fillStyle = "#d6c08a";
     ctx.font = "700 20px Microsoft YaHei, sans-serif";
@@ -611,6 +689,14 @@ export function draw(ctx, state) {
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
   ctx.restore();
+}
+
+function roomCamera(room, player, canvas) {
+  if (!room || room.width <= WIDTH && room.height <= HEIGHT) return { x: 0, y: 0 };
+  return {
+    x: Math.max(0, Math.min(room.width - canvas.width, player.x + player.w / 2 - canvas.width / 2)),
+    y: Math.max(0, Math.min(room.height - canvas.height, player.y + player.h / 2 - canvas.height / 2)),
+  };
 }
 
 function drawVisitedMap(ctx, state) {
