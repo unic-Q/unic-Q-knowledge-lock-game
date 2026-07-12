@@ -1238,11 +1238,13 @@ function updatePlatformGenerators(dt) {
     if (generator.timer > 0) continue;
     generator.timer += generator.interval;
     const cells = Math.max(1, Math.floor(generator.w / TILE));
-    const cell = Math.floor(Math.random() * cells);
+    const platformLength = Math.max(1, Math.floor(generator.platformLength || 1));
+    const cell = Math.floor(Math.random() * Math.max(1, cells - platformLength + 1));
     spawnFallingObject({
       kind: "platform",
       x: generator.x + cell * TILE,
       y: generator.y,
+      w: platformLength * TILE,
       speed: generator.speed,
       source: "platformGenerator",
     });
@@ -1274,9 +1276,9 @@ function updateDropBosses(dt) {
 }
 
 function updateDropBossMovement(boss, dt) {
-  const zone = boss.zone || { x: 0, w: state.room.width };
+  const zone = boss.moveZone || { x: 0, w: state.room.width };
   const minX = zone.x;
-  const maxX = zone.x + zone.w - boss.w;
+  const maxX = Math.max(minX, zone.x + zone.w - boss.w);
   boss.moveTimer = (boss.moveTimer || 0) - dt;
   if (boss.moveTimer <= 0) {
     boss.moveTimer = 0.7 + Math.random() * 1.4;
@@ -1293,7 +1295,7 @@ function updateDropBossMovement(boss, dt) {
 }
 
 function queueBossDrop(boss) {
-  const zone = boss.zone || { x: 0, y: TILE * 10, w: state.room.width, h: TILE };
+  const zone = dropBossDropZone(boss);
   const cols = Math.max(1, Math.floor(zone.w / TILE));
   const bossCenter = boss.x + boss.w / 2;
   const roomCenter = state.room.width / 2;
@@ -1316,6 +1318,17 @@ function queueBossDrop(boss) {
   });
 }
 
+function dropBossDropZone(boss) {
+  const x = Math.max(0, Math.min(state.room.width - TILE, boss.x));
+  const y = Math.max(0, Math.min(state.room.height - TILE, boss.y + boss.h));
+  return {
+    x,
+    y,
+    w: Math.max(TILE, Math.min(boss.w, state.room.width - x)),
+    h: Math.max(TILE, state.room.height - y),
+  };
+}
+
 function randomBossDropKind() {
   const roll = Math.random();
   if (roll < 0.01) return "coin";
@@ -1328,10 +1341,10 @@ function randomBossDropKind() {
   return "plague";
 }
 
-function spawnFallingObject({ kind, x, y, speed, source }) {
+function spawnFallingObject({ kind, x, y, w, speed, source }) {
   const { room } = state;
   room.fallingObjects ||= [];
-  const width = kind === "lightning" ? TILE * 2 : TILE;
+  const width = Math.max(TILE, w || (kind === "lightning" ? TILE * 2 : TILE));
   const object = {
     id: `fall:${Date.now()}:${Math.random()}`,
     kind,

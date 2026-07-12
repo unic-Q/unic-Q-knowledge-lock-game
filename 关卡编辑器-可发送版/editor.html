@@ -297,7 +297,6 @@
     let emitterDrag = null;
     let movingPlatformDrag = null;
     let platformGeneratorDrag = null;
-    let dropBossDrag = null;
     let pendingControlTargets = [];
     let enemyDrag = null;
     let pathDraft = null;
@@ -369,17 +368,21 @@
       );
       platformGenerators = platformGenerators.filter(item =>
         item.x < COLS && item.y < ROWS && item.x + item.w <= COLS && item.y + item.h <= ROWS
-      );
+      ).map(item => ({
+        ...item,
+        platformLength: Math.max(1, Math.min(20, Number(item.platformLength || item.length || 1)))
+      }));
       dropBosses = dropBosses.filter(item =>
         item.x < COLS && item.y < ROWS && item.x + item.w <= COLS && item.y + item.h <= ROWS
       ).map(item => ({
         ...item,
-        zone: {
-          x: Math.max(0, Math.min(COLS - 1, item.zone?.x || 0)),
-          y: Math.max(0, Math.min(ROWS - 1, item.zone?.y || 0)),
-          w: Math.max(1, Math.min(COLS - (item.zone?.x || 0), item.zone?.w || COLS)),
-          h: Math.max(1, Math.min(ROWS - (item.zone?.y || 0), item.zone?.h || ROWS)),
-        }
+        moveZone: {
+          x: Math.max(0, Math.min(COLS - 1, item.moveZone?.x || 0)),
+          y: Math.max(0, Math.min(ROWS - 1, item.moveZone?.y || 0)),
+          w: Math.max(1, Math.min(COLS - (item.moveZone?.x || 0), item.moveZone?.w || COLS)),
+          h: Math.max(1, Math.min(ROWS - (item.moveZone?.y || 0), item.moveZone?.h || ROWS)),
+        },
+        warningTime: 3,
       }));
       saveRoomData();
       render();
@@ -1015,7 +1018,6 @@
       enemyDrag = null;
       movingPlatformDrag = null;
       platformGeneratorDrag = null;
-      dropBossDrag = null;
       pathDraft = null;
       spawn = data.spawn || defaultSpawn();
       render();
@@ -1486,9 +1488,12 @@
         ctx.setLineDash([5, 4]);
         ctx.strokeRect(generator.x * TILE + 1.5, generator.y * TILE + 1.5, generator.w * TILE - 3, generator.h * TILE - 3);
         ctx.setLineDash([]);
+        const previewLength = Math.max(1, Number(generator.platformLength || 1));
+        ctx.fillStyle = 'rgba(125,167,189,0.32)';
+        ctx.fillRect(generator.x * TILE + 3, generator.y * TILE + 3, Math.min(generator.w, previewLength) * TILE - 6, TILE / 2);
       }
       for (const boss of dropBosses) {
-        const zone = boss.zone || { x: 0, y: 0, w: 1, h: 1 };
+        const zone = dropBossPreviewZone(boss);
         ctx.fillStyle = 'rgba(244,201,93,0.12)';
         ctx.strokeStyle = '#f4c95d';
         ctx.setLineDash([6, 4]);
@@ -1500,7 +1505,6 @@
         ctx.strokeRect(boss.x * TILE + 0.5, boss.y * TILE + 0.5, boss.w * TILE - 1, boss.h * TILE - 1);
       }
       if (platformGeneratorDrag) drawDragRect(platformGeneratorDrag, '#7da7bd');
-      if (dropBossDrag) drawDragRect(dropBossDrag, '#f4c95d');
       for (const seq of sequencers) {
         ctx.fillStyle = 'rgba(202,166,255,0.26)';
         ctx.strokeStyle = '#caa6ff';
@@ -1568,9 +1572,11 @@
       );
       if (generatorIndex >= 0) return { type: 'platformGenerator', index: generatorIndex };
       const dropBossIndex = dropBosses.findIndex(item => {
-        const zone = item.zone || { x: item.x, y: item.y, w: item.w, h: item.h };
+        const zone = dropBossPreviewZone(item);
+        const legacyZone = item.zone || null;
         return (x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h) ||
-          (x >= zone.x && x < zone.x + zone.w && y >= zone.y && y < zone.y + zone.h);
+          (x >= zone.x && x < zone.x + zone.w && y >= zone.y && y < zone.y + zone.h) ||
+          (legacyZone && x >= legacyZone.x && x < legacyZone.x + legacyZone.w && y >= legacyZone.y && y < legacyZone.y + legacyZone.h);
       });
       if (dropBossIndex >= 0) return { type: 'dropBoss', index: dropBossIndex };
       const enemyIndex = enemyTargetIndexAt(x, y);
@@ -2416,6 +2422,7 @@
       }
       const interval = clampNumber(prompt('平台生成间隔（秒，0.15-10）', '1.2'), 0.15, 10, 1.2);
       const speed = clampNumber(prompt('平台下落速度（格/秒，0.1-10）', '1.4'), 0.1, 10, 1.4);
+      const platformLength = clampNumber(prompt('每个平台长度（格，1-20）', '1'), 1, 20, 1);
       platformGenerators = platformGenerators.filter(item =>
         !(item.x === rect.x && item.y === rect.y && item.w === rect.w && item.h === rect.h)
       );
@@ -2426,44 +2433,46 @@
         h: rect.h,
         interval,
         speed,
+        platformLength,
       });
       platformGeneratorDrag = null;
       saveRoomData();
       render();
     }
 
-    function finishDropBossPlacement() {
-      if (!dropBossDrag) return;
-      const zone = normalizedDragRect(dropBossDrag.start, dropBossDrag.current);
-      if (zone.w < 1 || zone.h < 1) {
-        dropBossDrag = null;
-        render();
-        return;
-      }
+    function placeDropBossAt(cell) {
       const interval = clampNumber(prompt('Boss 掉落间隔（秒，0.25-10）', '0.9'), 0.25, 10, 0.9);
-      const warningTime = clampNumber(prompt('预警时间（秒，0.2-3）', '0.65'), 0.2, 3, 0.65);
       const fallSpeed = clampNumber(prompt('掉落速度（格/秒，0.5-20）', '3.2'), 0.5, 20, 3.2);
       const moveSpeed = clampNumber(prompt('Boss 横向速度（格/秒，0-10）', '2'), 0, 10, 2);
       const bossW = 10;
       const bossH = 10;
-      const zoneCenter = zone.x + zone.w / 2;
-      const bossX = Math.max(0, Math.min(COLS - bossW, Math.floor(zoneCenter - bossW / 2)));
-      const bossY = Math.max(0, Math.min(ROWS - bossH, Math.floor(zone.y - bossH)));
+      const bossX = Math.max(0, Math.min(COLS - bossW, cell.x));
+      const bossY = Math.max(0, Math.min(ROWS - bossH, cell.y));
       dropBosses = dropBosses.filter(item => item.x !== bossX || item.y !== bossY);
       dropBosses.push({
         x: bossX,
         y: bossY,
         w: bossW,
         h: bossH,
-        zone,
+        moveZone: { x: 0, y: 0, w: COLS, h: ROWS },
         interval,
-        warningTime,
+        warningTime: 3,
         fallSpeed,
         moveSpeed,
       });
-      dropBossDrag = null;
       saveRoomData();
       render();
+    }
+
+    function dropBossPreviewZone(boss) {
+      const x = Math.max(0, Math.min(COLS - 1, Math.floor(boss.x || 0)));
+      const y = Math.max(0, Math.min(ROWS - 1, Math.floor((boss.y || 0) + (boss.h || 10))));
+      return {
+        x,
+        y,
+        w: Math.max(1, Math.min(boss.w || 10, COLS - x)),
+        h: Math.max(1, ROWS - y),
+      };
     }
 
     function snapDirection(dx, dy) {
@@ -2689,6 +2698,10 @@
         return;
       }
       const { x, y } = getCell(e);
+      if (paintButton === 2 && removeMechanismAt(x, y)) {
+        isPainting = false;
+        return;
+      }
       const char = paintButton === 2 ? '.' : currentChar;
       const key = `${x},${y},${char}`;
       if (key === lastPaintKey) return;
@@ -2726,6 +2739,44 @@
         return;
       }
       placeCell(x, y, char, e.shiftKey, e.ctrlKey || e.metaKey);
+    }
+
+    function removeMechanismAt(x, y) {
+      let removed = false;
+      const removedGeneratorKeys = [];
+      platformGenerators = platformGenerators.filter((item, index) => {
+        const hit = x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h;
+        if (hit) {
+          removed = true;
+          removedGeneratorKeys.push(`platformGenerator:${index}`);
+        }
+        return !hit;
+      });
+      const removedDropBossKeys = [];
+      dropBosses = dropBosses.filter((item, index) => {
+        const zone = dropBossPreviewZone(item);
+        const legacyZone = item.zone || null;
+        const hit = (x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h) ||
+          (x >= zone.x && x < zone.x + zone.w && y >= zone.y && y < zone.y + zone.h) ||
+          (legacyZone && x >= legacyZone.x && x < legacyZone.x + legacyZone.w && y >= legacyZone.y && y < legacyZone.y + legacyZone.h);
+        if (hit) {
+          removed = true;
+          removedDropBossKeys.push(`dropBoss:${index}`);
+        }
+        return !hit;
+      });
+      if (!removed) return false;
+      const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys]);
+      controlBindings = controlBindings
+        .map(binding => ({
+          ...binding,
+          targets: binding.targets.filter(target => !removedKeys.has(controlTargetKey(target)))
+        }))
+        .filter(binding => binding.targets.length);
+      for (const key of removedKeys) delete targetDefaults[key];
+      saveRoomData();
+      render();
+      return true;
     }
 
     canvas.addEventListener('mousemove', (e) => {
@@ -2776,11 +2827,6 @@
         render();
         return;
       }
-      if (dropBossDrag) {
-        dropBossDrag.current = { x, y };
-        render();
-        return;
-      }
       if (isPainting) paintAt(e);
       else render();
     });
@@ -2794,7 +2840,6 @@
       mapPan = null;
       movingPlatformDrag = null;
       platformGeneratorDrag = null;
-      dropBossDrag = null;
       hoveredMapRoom = null;
       render();
     });
@@ -2857,10 +2902,8 @@
         return;
       }
       if (editorMode === 'tile' && currentChar === '2' && e.button === 0) {
-        const cell = getCell(e);
-        dropBossDrag = { start: cell, current: cell };
+        placeDropBossAt(getCell(e));
         isPainting = false;
-        render();
         return;
       }
       if (editorMode === 'tile' && currentChar === 'Y' && e.button === 0) {
@@ -2889,10 +2932,6 @@
       }
       if (platformGeneratorDrag) {
         finishPlatformGeneratorPlacement();
-        return;
-      }
-      if (dropBossDrag) {
-        finishDropBossPlacement();
         return;
       }
       if (mapDrag) {
