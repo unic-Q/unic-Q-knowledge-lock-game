@@ -427,17 +427,20 @@ function drawPlagueStain(ctx, stain, alpha = 1) {
 
 function drawPlagueSegment(ctx, segment, alpha = 1) {
   const step = 13;
-  const start = Math.floor(segment.a / step) * step;
-  const end = segment.b;
+  const min = Math.min(segment.a, segment.b);
+  const max = Math.max(segment.a, segment.b);
+  const start = Math.floor(min / step) * step;
+  const end = max;
   for (let t = start; t <= end; t += step) {
-    if (t < segment.a) continue;
+    if (t < min) continue;
     const seed = segment.seed * 97 + Math.round(t);
     const jitter = ((seed * 13) % 7) - 3;
-    const sampleT = Math.max(segment.a, Math.min(segment.b, t + jitter));
+    const sampleT = Math.max(min, Math.min(max, t + jitter));
     const len = 16 + (seed % 5) * 3;
     const thick = segment.thick + (seed % 3);
-    const x = segment.tx * sampleT + segment.nx * segment.n;
-    const y = segment.ty * sampleT + segment.ny * segment.n;
+    const outward = segment.playerGenerated ? 6 : 0;
+    const x = segment.tx * sampleT + segment.nx * segment.n + segment.nx * outward;
+    const y = segment.ty * sampleT + segment.ny * segment.n + segment.ny * outward;
     drawPlagueStain(ctx, {
       x,
       y,

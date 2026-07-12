@@ -226,6 +226,15 @@ function addPlagueSegment(player, surface, corner = false, pathDir = 0) {
   const b = contact.b + pad;
   const n = surface.nx * contact.x + surface.ny * contact.y;
   const key = `${surface.nx},${surface.ny},${Math.round(n)}`;
+  const trimSide = pathDir < 0 ? "b" : "a";
+  const last = player.plague[player.plague.length - 1];
+  if (last && last.key === key && last.trimSide === trimSide && !(b < Math.min(last.a, last.b) - 12 || a > Math.max(last.a, last.b) + 12)) {
+    last.a = Math.min(last.a, a);
+    last.b = Math.max(last.b, b);
+    last.corner = last.corner || corner;
+    last.thick = Math.max(last.thick || 10, corner ? 14 : 10);
+    return;
+  }
   player.plagueSerial = (player.plagueSerial || 0) + 1;
 
   player.plague.push({
@@ -241,7 +250,8 @@ function addPlagueSegment(player, surface, corner = false, pathDir = 0) {
     corner,
     seed: player.plagueSerial,
     order: player.plagueSerial,
-    trimSide: pathDir < 0 ? "b" : "a",
+    trimSide,
+    playerGenerated: true,
     life: 999,
   });
 }
@@ -330,7 +340,7 @@ function updateWhiteHookPull(state, upHeld, dt) {
   if (upHeld) player.hook.hold += dt;
   if (player.hook.hold >= WHITE_HOOK_HOLD) player.hook.pulling = true;
   if (player.hook.type === "anchorSwing") {
-    updateAnchorSwing(player, dt);
+    updateAnchorSwing(state, player, dt);
     return true;
   }
   if (!player.hook.pulling) return false;
@@ -455,14 +465,18 @@ function pointSegmentDistance(px, py, ax, ay, bx, by) {
   return Math.hypot(px - x, py - y);
 }
 
-function updateAnchorSwing(player, dt) {
+function updateAnchorSwing(state, player, dt) {
   const hook = player.hook;
   const speed = WHITE_PLAGUE_SPEED;
-  const radius = Math.max(24, hook.swingRadius || Math.hypot(player.x + player.w / 2 - hook.x, player.y + player.h / 2 - hook.y));
+  const currentRadius = Math.hypot(player.x + player.w / 2 - hook.x, player.y + player.h / 2 - hook.y);
+  const radius = Math.max(24, Math.min(hook.swingRadius || currentRadius, currentRadius || hook.swingRadius || 24));
   hook.swingRadius = radius;
   hook.swingAngle += (hook.swingSign || 1) * (speed / radius) * dt;
-  const cx = hook.x + Math.cos(hook.swingAngle) * radius;
-  const cy = hook.y + Math.sin(hook.swingAngle) * radius;
+  const bounds = swingBounds(state, player);
+  const cx = Math.max(bounds.minX, Math.min(bounds.maxX, hook.x + Math.cos(hook.swingAngle) * radius));
+  const cy = Math.max(bounds.minY, Math.min(bounds.maxY, hook.y + Math.sin(hook.swingAngle) * radius));
+  hook.swingAngle = Math.atan2(cy - hook.y, cx - hook.x);
+  hook.swingRadius = Math.min(hook.swingRadius, Math.max(24, Math.hypot(cx - hook.x, cy - hook.y)));
   const tangentX = -Math.sin(hook.swingAngle) * (hook.swingSign || 1);
   const tangentY = Math.cos(hook.swingAngle) * (hook.swingSign || 1);
   player.vx = tangentX * speed;
@@ -473,6 +487,15 @@ function updateAnchorSwing(player, dt) {
   player.y = cy - player.h / 2;
   player.whiteSurface = null;
   player.whiteDetach = 0.16;
+}
+
+function swingBounds(state, player) {
+  return {
+    minX: player.w / 2,
+    minY: player.h / 2,
+    maxX: (state.room?.width || 32 * 20) - player.w / 2,
+    maxY: (state.room?.height || 32 * 20) - player.h / 2,
+  };
 }
 
 function hookHitSurface(block, x, y) {
