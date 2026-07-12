@@ -72,9 +72,12 @@ export function updateWhite(state, input, dt) {
   const hadHook = Boolean(player.hook);
   if (updateWhiteHookPull(state, input.upHeld, dt)) return;
   player.whiteTurnCooldown = Math.max(0, (player.whiteTurnCooldown || 0) - dt);
+  player.whiteDetach = Math.max(0, (player.whiteDetach || 0) - dt);
 
   const rememberedSurface = normalizeWhiteSurface(player.whiteSurface);
-  const surface = isWhiteSurfaceUsable(player, rememberedSurface) ? rememberedSurface : (rememberedSurface ? null : findWhiteSurface(state));
+  if (!rememberedSurface && player.whiteDetach <= 0) resolveWhiteAirOverlap(state);
+  const surface = player.whiteDetach > 0 ? null :
+    isWhiteSurfaceUsable(player, rememberedSurface) ? rememberedSurface : (rememberedSurface ? null : findWhiteSurface(state));
   if (surface) {
     const dir = input.right ? 1 : input.left ? -1 : 0;
     player.whiteSurface = normalizeWhiteSurface({ ...surface, block: surface.block });
@@ -563,6 +566,9 @@ function updateHookOriginFromPlayer(player) {
 
 function findHookAnchor(state, sx, sy, ex, ey, toleranceTiles) {
   const tolerance = toleranceTiles * 32;
+  const segDx = ex - sx;
+  const segDy = ey - sy;
+  const segLen2 = segDx * segDx + segDy * segDy || 1;
   const candidates = [
     ...(state.room.anchors || []),
     ...(state.room.fallingObjects || [])
@@ -574,14 +580,44 @@ function findHookAnchor(state, sx, sy, ex, ey, toleranceTiles) {
   for (const anchor of candidates) {
     const score = pointSegmentDistance(anchor.x, anchor.y, sx, sy, ex, ey);
     if (score > tolerance) continue;
-    const dot = (anchor.x - sx) * (ex - sx) + (anchor.y - sy) * (ey - sy);
-    if (dot < 0) continue;
+    const dot = (anchor.x - sx) * segDx + (anchor.y - sy) * segDy;
+    if (dot < 0 || dot > segLen2) continue;
     if (score < bestScore) {
       best = anchor;
       bestScore = score;
     }
   }
   return best;
+}
+
+function resolveWhiteAirOverlap(state) {
+  const p = state.player;
+  const overlap = whiteSurfaceBlocks(state)
+    .filter((block) => rectsOverlap(p, block))
+    .map((block) => ({
+      block,
+      pen: Math.min(p.x + p.w - block.x, block.x + block.w - p.x, p.y + p.h - block.y, block.y + block.h - p.y),
+    }))
+    .sort((a, b) => a.pen - b.pen)[0]?.block;
+  if (!overlap) return;
+  const leftPen = p.x + p.w - overlap.x;
+  const rightPen = overlap.x + overlap.w - p.x;
+  const topPen = p.y + p.h - overlap.y;
+  const bottomPen = overlap.y + overlap.h - p.y;
+  const minPen = Math.min(leftPen, rightPen, topPen, bottomPen);
+  if (minPen === topPen && p.vy >= 0) {
+    p.y -= topPen;
+    p.vy = Math.min(0, p.vy);
+  } else if (minPen === bottomPen && p.vy <= 0) {
+    p.y += bottomPen;
+    p.vy = Math.max(0, p.vy);
+  } else if (minPen === leftPen) {
+    p.x -= leftPen;
+    p.vx = Math.min(0, p.vx);
+  } else {
+    p.x += rightPen;
+    p.vx = Math.max(0, p.vx);
+  }
 }
 
 function pointSegmentDistance(px, py, ax, ay, bx, by) {

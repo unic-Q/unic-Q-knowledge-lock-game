@@ -936,17 +936,28 @@ function projectileIgnoredByForm(projectile) {
 
 function applyBossRoomProgress(respawning = false) {
   const { room } = state;
-  if (!room?.bosses?.length) return;
+  if (!room) return;
+  const hasBoss = Boolean(room.bosses?.length);
+  const hasDropBoss = Boolean(room.dropBosses?.length);
+  if (!hasBoss && !hasDropBoss) return;
   const defeated = state.defeatedBossRooms.has(room.id);
   const cleared = state.clearedBossRooms.has(room.id);
-  if (defeated) {
+  if (hasBoss && defeated) {
     room.bosses.length = 0;
     room.bossBattleStarted = true;
-  } else if (respawning) {
+  } else if (hasBoss && respawning) {
     const boss = room.bosses[0];
     boss.state = "intro";
     boss.timer = 1.5;
     room.bossBattleStarted = true;
+  }
+  if (hasDropBoss && defeated) {
+    for (const boss of room.dropBosses) {
+      boss.defeated = true;
+      boss.enabled = false;
+      boss.warnings = [];
+      boss.phase = null;
+    }
   }
   room.bossDefeated = defeated;
   room.bossCleared = cleared;
@@ -1130,10 +1141,19 @@ function hitDropBoss(boss) {
     boss.enabled = false;
     boss.warnings = [];
     boss.phase = null;
+    if (dropBossesDefeated(state.room)) {
+      state.defeatedBossRooms.add(state.room.id);
+      state.room.bossDefeated = true;
+      state.room.finalSwitchArmed = false;
+    }
   } else if (boss.hp <= (boss.nextPhaseHp ?? 0)) {
     boss.nextPhaseHp = Math.max(0, (boss.nextPhaseHp ?? 0) - 2);
     startDropBossPhase(boss);
   }
+}
+
+function dropBossesDefeated(room) {
+  return Boolean(room?.dropBosses?.length) && room.dropBosses.every((boss) => boss.defeated);
 }
 
 function updateEmitters(dt) {
@@ -1684,7 +1704,12 @@ function handleSwitches(dt = 0) {
     const body = bodyCanPress && rectsOverlap(player, s);
     const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
     const isFinalBossSwitch = room.bossRoom && s.switchKey === "8,38";
-    if (isFinalBossSwitch) {
+    const isDropBossFinalSwitch = isRoom22DropBossSwitch(room);
+    if (isFinalBossSwitch || isDropBossFinalSwitch) {
+      if (isDropBossFinalSwitch && !room.bossDefeated) {
+        s.pressed = false;
+        continue;
+      }
       if (room.bossDefeated && !body) room.finalSwitchArmed = true;
       if (room.bossDefeated && room.finalSwitchArmed && body) {
         s.latched = true;
@@ -1796,6 +1821,10 @@ function handleSwitches(dt = 0) {
   for (const boss of room.dropBosses || []) {
     boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
   }
+}
+
+function isRoom22DropBossSwitch(room) {
+  return Number(room?.id) === 22 && Boolean(room?.dropBosses?.length);
 }
 
 function targetKeyForControlTarget(target) {

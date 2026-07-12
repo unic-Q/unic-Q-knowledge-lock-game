@@ -611,6 +611,7 @@ export function draw(ctx, state) {
   }
   for (const s of room.switches || []) {
     if (room.bossRoom && s.switchKey === "8,38" && !room.bossDefeated) continue;
+    if (isRoom22DropBossSwitchHidden(room)) continue;
     drawSwitch(ctx, s);
   }
   for (const s of room.repeatSwitches || []) drawSwitch(ctx, s);
@@ -738,6 +739,10 @@ export function draw(ctx, state) {
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
   ctx.restore();
+}
+
+function isRoom22DropBossSwitchHidden(room) {
+  return Number(room?.id) === 22 && Boolean(room?.dropBosses?.length) && !room.bossDefeated;
 }
 
 function drawPlayerDeath(ctx, state) {
