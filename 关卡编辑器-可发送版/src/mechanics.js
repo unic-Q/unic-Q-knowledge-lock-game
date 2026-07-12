@@ -69,6 +69,7 @@ export function updateNone(state, input, dt) {
 
 export function updateWhite(state, input, dt) {
   const { player } = state;
+  const hadHook = Boolean(player.hook);
   if (updateWhiteHookPull(state, input.upHeld, dt)) return;
   player.whiteTurnCooldown = Math.max(0, (player.whiteTurnCooldown || 0) - dt);
 
@@ -97,8 +98,8 @@ export function updateWhite(state, input, dt) {
       player.vx *= 0.82;
     }
   }
-  if (input.up) shootWhiteHook(state, input.left ? -1 : input.right ? 1 : 0);
-  updateWhiteHookPull(state, input.upHeld, dt);
+  if (input.up && !player.hook) shootWhiteHook(state, input.left ? -1 : input.right ? 1 : 0);
+  if (!hadHook) updateWhiteHookPull(state, input.upHeld, dt);
 }
 
 function normalizeWhiteSurface(surface) {
@@ -139,8 +140,8 @@ function moveWhiteOnSurface(state, dir, dt) {
     if (player.whiteTurnCooldown > 0) break;
 
     const edgeIsMax = sign > 0;
-    const next = findSameFaceContinuation(state, surface, edge, edgeIsMax) ||
-      findInnerCornerSurface(state, surface, dir) ||
+    const next = findInnerCornerSurface(state, surface, dir) ||
+      findSameFaceContinuation(state, surface, edge, edgeIsMax) ||
       exteriorCornerSurface(surface, edgeIsMax);
     if (!next) {
       player.whiteSurface = null;
@@ -195,7 +196,21 @@ function findInnerCornerSurface(state, surface, dir) {
   const block = activeBlocks(state).find((b) => b !== surface.block && rectsOverlap(probe, b));
   if (!block) return null;
   const nextNormal = { nx: -tx, ny: -ty };
+  if (!isWhiteFaceExposed(state, block, nextNormal)) return null;
   return normalizeWhiteSurface({ block, ...nextNormal });
+}
+
+function isWhiteFaceExposed(state, block, normal) {
+  const size = 4;
+  const x = normal.nx < 0 ? block.x - size : normal.nx > 0 ? block.x + block.w : block.x + block.w / 2 - size / 2;
+  const y = normal.ny < 0 ? block.y - size : normal.ny > 0 ? block.y + block.h : block.y + block.h / 2 - size / 2;
+  const probe = {
+    x,
+    y,
+    w: normal.nx === 0 ? size : size,
+    h: normal.ny === 0 ? size : size,
+  };
+  return !activeBlocks(state).some((other) => other !== block && rectsOverlap(probe, other));
 }
 
 function exteriorCornerSurface(surface, edgeIsMax) {
@@ -409,10 +424,22 @@ function updateWhiteHookPull(state, upHeld, dt) {
   player.hookTime -= dt;
   if (player.hook.extending) {
     player.hook.progress = Math.min(player.hook.length, player.hook.progress + WHITE_HOOK_EXTEND * dt);
+    updateHookOriginFromPlayer(player);
     player.hook.x = player.hook.sx + player.hook.dx * player.hook.progress;
     player.hook.y = player.hook.sy + player.hook.dy * player.hook.progress;
-    if (player.hook.progress < player.hook.length) return true;
+    if (player.hook.progress < player.hook.length) return false;
     player.hook.extending = false;
+    if (player.hook.hit) {
+      const currentLength = Math.hypot(player.hook.targetX - player.hook.sx, player.hook.targetY - player.hook.sy);
+      if (currentLength > WHITE_HOOK_RANGE + 4) {
+        player.hook.hit = false;
+        player.hook.type = "surfacePull";
+        player.hook.surface = null;
+      } else {
+        player.hook.x = player.hook.targetX;
+        player.hook.y = player.hook.targetY;
+      }
+    }
   }
   if (!player.hook.hit) return false;
 
@@ -520,6 +547,11 @@ function shootWhiteHook(state, aimBias) {
     vy: 0,
   };
   player.hookTime = end.type === "anchorSwing" ? 8.0 : end.hit ? 2.0 : hookLength / WHITE_HOOK_EXTEND + 0.08;
+}
+
+function updateHookOriginFromPlayer(player) {
+  player.hook.sx = player.x + player.w / 2;
+  player.hook.sy = player.y + player.h / 2;
 }
 
 function findHookAnchor(state, sx, sy, ex, ey, toleranceTiles) {
