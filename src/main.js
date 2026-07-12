@@ -1239,7 +1239,7 @@ function updatePlatformGenerators(dt) {
     generator.timer += generator.interval;
     const cells = Math.max(1, Math.floor(generator.w / TILE));
     const platformLength = Math.max(1, Math.floor(generator.platformLength || 1));
-    const cell = Math.floor(Math.random() * Math.max(1, cells - platformLength + 1));
+    const cell = Math.floor(Math.random() * cells);
     spawnFallingObject({
       kind: "platform",
       x: generator.x + cell * TILE,
@@ -1345,10 +1345,11 @@ function spawnFallingObject({ kind, x, y, w, speed, source }) {
   const { room } = state;
   room.fallingObjects ||= [];
   const width = Math.max(TILE, w || (kind === "lightning" ? TILE * 2 : TILE));
+  const maxX = Math.max(0, room.width - width);
   const object = {
     id: `fall:${Date.now()}:${Math.random()}`,
     kind,
-    x: Math.min(x, room.width - width),
+    x: Math.max(0, Math.min(x, maxX)),
     y,
     w: width,
     h: kind === "platform" || kind === "breakable" ? TILE / 2 : TILE,
