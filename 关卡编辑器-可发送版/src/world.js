@@ -482,6 +482,29 @@ export function parseRoom(data) {
   const blocks = [];
   const platforms = [];
   const breakablePlatforms = [];
+  const movingPlatforms = (data.movingPlatforms || []).map((item, index) => {
+    const x = Number(item.x || 0);
+    const y = Number(item.y || 0);
+    const path = Array.isArray(item.path) && item.path.length >= 2 ? item.path : [{ x, y }, { x, y: y - 3 }];
+    return {
+      x: x * TILE,
+      y: y * TILE,
+      w: TILE,
+      h: TILE / 2,
+      face: "up",
+      moving: true,
+      index,
+      targetKey: `movingPlatform:${index}`,
+      path: path.map((point) => ({
+        x: Number(point.x || 0) * TILE + TILE / 2,
+        y: Number(point.y || 0) * TILE + TILE / 4,
+      })),
+      pathIndex: 1,
+      moveSpeed: Math.max(0.1, Number(item.speed || item.moveSpeed || 1)) * TILE,
+      loop: item.loop !== false,
+      enabled: true,
+    };
+  });
   const cracks = [];
   const hidden = [];
   const anchors = [];
@@ -722,7 +745,8 @@ export function parseRoom(data) {
     width: cols * TILE,
     height: rows * TILE,
     blocks,
-    platforms,
+    platforms: platforms.concat(movingPlatforms),
+    movingPlatforms,
     breakablePlatforms,
     cracks,
     hidden,

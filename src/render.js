@@ -224,9 +224,23 @@ function drawCheckpoint(ctx, f, current = false) {
 }
 
 function drawPlatform(ctx, p) {
-  const fill = "#758698";
-  const stroke = "#40505f";
+  const fill = p.moving ? "#7da7bd" : "#758698";
+  const stroke = p.moving ? "#2e6f88" : "#40505f";
   drawRect(ctx, p, fill, stroke);
+  if (p.moving && p.path?.length) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(46,111,136,0.45)";
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    p.path.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    if (p.loop && p.path.length > 2) ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
 }
 
 function drawGate(ctx, g) {

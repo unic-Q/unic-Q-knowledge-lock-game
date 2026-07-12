@@ -57,6 +57,12 @@ export function isGroundedNow(state) {
   return false;
 }
 
+function stopRedDashOnNormal(state, nx, ny) {
+  const dash = state.player.redDash;
+  if (state.form !== "red" || !dash) return;
+  if (dash.dx * nx + dash.dy * ny < -0.5) state.player.redDash = null;
+}
+
 export function moveAxis(state, axis, dt) {
   const { player, room } = state;
   const amount = axis === "x" ? player.vx * dt : player.vy * dt;
@@ -67,18 +73,18 @@ export function moveAxis(state, axis, dt) {
       if (amount > 0) player.x = b.x - player.w;
       if (amount < 0) player.x = b.x + b.w;
       player.vx = 0;
-      if (state.form === "red" && player.redDash) player.redDash = null;
+      stopRedDashOnNormal(state, amount > 0 ? -1 : 1, 0);
     } else if (amount > 0) {
       player.y = b.y - player.h;
       player.vy = 0;
-      if (state.form === "red" && player.redDash) player.redDash = null;
+      stopRedDashOnNormal(state, 0, -1);
       player.onGround = true;
       player.jumps = 0;
       player.coyote = 0.1;
     } else if (amount < 0) {
       player.y = b.y + b.h;
       player.vy = 0;
-      if (state.form === "red" && player.redDash) player.redDash = null;
+      stopRedDashOnNormal(state, 0, 1);
     }
   }
   if (axis === "y" && player.dropTimer <= 0 && state.form !== "black") {
@@ -90,13 +96,13 @@ export function moveAxis(state, axis, dt) {
       if (amount >= 0 && face === "up" && wasAbove && rectsOverlap(player, b)) {
         player.y = b.y - player.h;
         player.vy = 0;
-        if (state.form === "red" && player.redDash) player.redDash = null;
+        stopRedDashOnNormal(state, 0, -1);
         player.onGround = true;
         player.jumps = 0;
       } else if (amount < 0 && face === "down" && wasBelow && rectsOverlap(player, b)) {
         player.y = b.y + b.h;
         player.vy = 0;
-        if (state.form === "red" && player.redDash) player.redDash = null;
+        stopRedDashOnNormal(state, 0, 1);
       }
     }
   }
@@ -109,11 +115,11 @@ export function moveAxis(state, axis, dt) {
       if (amount > 0 && face === "left" && wasLeft && rectsOverlap(player, b)) {
         player.x = b.x - player.w;
         player.vx = 0;
-        if (state.form === "red" && player.redDash) player.redDash = null;
+        stopRedDashOnNormal(state, -1, 0);
       } else if (amount < 0 && face === "right" && wasRight && rectsOverlap(player, b)) {
         player.x = b.x + b.w;
         player.vx = 0;
-        if (state.form === "red" && player.redDash) player.redDash = null;
+        stopRedDashOnNormal(state, 1, 0);
       }
     }
   }

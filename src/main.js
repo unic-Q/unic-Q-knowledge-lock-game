@@ -210,6 +210,7 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     targetDefaults: normalizeTargetDefaults(room?.targetDefaults),
     enemyPatrols: Array.isArray(room?.enemyPatrols) ? room.enemyPatrols : [],
     advancedEnemies: Array.isArray(room?.advancedEnemies) ? room.advancedEnemies : [],
+    movingPlatforms: Array.isArray(room?.movingPlatforms) ? room.movingPlatforms : [],
   };
 }
 
@@ -653,6 +654,7 @@ function update(dt) {
 
   updateBoss(dt);
   handleSwitches(dt);
+  updateMovingPlatforms(dt);
   moveAxis(state, "x", dt);
   moveAxis(state, "y", dt);
 
@@ -826,7 +828,7 @@ function handlePickups() {
 function handleHazards() {
   const { player, room } = state;
   for (const projectile of room.projectiles || []) {
-    if (!rectsOverlap(player, projectile)) continue;
+    if (!rectsOverlap(expandedRollRect(player), projectile)) continue;
     if (projectileIgnoredByForm(projectile)) continue;
     if (!surviveHazard(player)) return;
   }
@@ -1149,6 +1151,7 @@ function emitterDirection(emitter) {
 
 function updatePathMover(entity, dt) {
   if (!Array.isArray(entity.path) || entity.path.length < 2 || !entity.moveSpeed) return;
+  if (entity.pathFinished) return;
   entity.pathIndex ||= 1;
   const target = entity.path[entity.pathIndex % entity.path.length];
   const cx = entity.x + entity.w / 2;
@@ -1160,11 +1163,35 @@ function updatePathMover(entity, dt) {
   if (distance <= Math.max(0.001, step)) {
     entity.x = target.x - entity.w / 2;
     entity.y = target.y - entity.h / 2;
+    if (entity.loop === false && entity.pathIndex >= entity.path.length - 1) {
+      entity.pathFinished = true;
+      return;
+    }
     entity.pathIndex = (entity.pathIndex + 1) % entity.path.length;
     return;
   }
   entity.x += dx / distance * step;
   entity.y += dy / distance * step;
+}
+
+function updateMovingPlatforms(dt) {
+  const { room, player } = state;
+  for (const platform of room.movingPlatforms || []) {
+    if (!platform.enabled) continue;
+    const previous = { x: platform.x, y: platform.y, w: platform.w, h: platform.h };
+    const rider = player.y + player.h <= previous.y + 4 &&
+      player.y + player.h >= previous.y - 6 &&
+      player.x + player.w > previous.x + 3 &&
+      player.x < previous.x + previous.w - 3 &&
+      player.vy >= -20;
+    updatePathMover(platform, dt);
+    const dx = platform.x - previous.x;
+    const dy = platform.y - previous.y;
+    if (rider) {
+      player.x += dx;
+      player.y += dy;
+    }
+  }
 }
 
 function protectSideHazard(player, side) {
@@ -1390,6 +1417,9 @@ function handleSwitches(dt = 0) {
   for (const emitter of room.emitters || []) {
     emitter.disabled = room.bossDefeated || !targetEnabled(emitter.targetKey, true);
   }
+  for (const platform of room.movingPlatforms || []) {
+    platform.enabled = targetEnabled(platform.targetKey, true);
+  }
 }
 
 function targetKeyForControlTarget(target) {
@@ -1400,6 +1430,7 @@ function targetKeyForControlTarget(target) {
   }
   if (target.type === "emitter") return `emitter:${target.index}`;
   if (target.type === "enemy") return `enemy:${target.index}`;
+  if (target.type === "movingPlatform") return `movingPlatform:${target.index}`;
   return `cell:${target.x},${target.y}`;
 }
 
