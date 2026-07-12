@@ -133,13 +133,15 @@ export function findWhiteSurface(state) {
   const { player } = state;
   const cx = player.x + player.w / 2;
   const cy = player.y + player.h / 2;
+  const footHalf = player.w / 2;
+  const bodyHalf = player.h / 2;
   let best = null;
   for (const b of activeBlocks(state)) {
     const faces = [
-      { nx: 0, ny: -1, d: Math.abs(player.y + player.h - b.y), ok: cx >= b.x - WHITE_SNAP && cx <= b.x + b.w + WHITE_SNAP },
-      { nx: 0, ny: 1, d: Math.abs(player.y - (b.y + b.h)), ok: cx >= b.x - WHITE_SNAP && cx <= b.x + b.w + WHITE_SNAP },
-      { nx: -1, ny: 0, d: Math.abs(player.x + player.w - b.x), ok: cy >= b.y - WHITE_SNAP && cy <= b.y + b.h + WHITE_SNAP },
-      { nx: 1, ny: 0, d: Math.abs(player.x - (b.x + b.w)), ok: cy >= b.y - WHITE_SNAP && cy <= b.y + b.h + WHITE_SNAP },
+      { nx: 0, ny: -1, d: Math.abs(cy - (b.y - bodyHalf)), ok: cx >= b.x - footHalf - WHITE_SNAP && cx <= b.x + b.w + footHalf + WHITE_SNAP },
+      { nx: 0, ny: 1, d: Math.abs(cy - (b.y + b.h + bodyHalf)), ok: cx >= b.x - footHalf - WHITE_SNAP && cx <= b.x + b.w + footHalf + WHITE_SNAP },
+      { nx: -1, ny: 0, d: Math.abs(cx - (b.x - bodyHalf)), ok: cy >= b.y - footHalf - WHITE_SNAP && cy <= b.y + b.h + footHalf + WHITE_SNAP },
+      { nx: 1, ny: 0, d: Math.abs(cx - (b.x + b.w + bodyHalf)), ok: cy >= b.y - footHalf - WHITE_SNAP && cy <= b.y + b.h + footHalf + WHITE_SNAP },
     ];
     for (const f of faces) {
       if (!f.ok || f.d > WHITE_SNAP) continue;
@@ -153,10 +155,22 @@ export function findWhiteSurface(state) {
 
 export function snapWhiteToSurface(player, surface) {
   const b = surface.block;
-  if (surface.nx === 0 && surface.ny === -1) player.y = b.y - player.h;
-  if (surface.nx === 0 && surface.ny === 1) player.y = b.y + b.h;
-  if (surface.nx === -1 && surface.ny === 0) player.x = b.x - player.w;
-  if (surface.nx === 1 && surface.ny === 0) player.x = b.x + b.w;
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const footHalf = player.w / 2;
+  const bodyHalf = player.h / 2;
+  if (surface.nx === 0) {
+    const nextCx = Math.max(b.x - footHalf, Math.min(b.x + b.w + footHalf, cx));
+    const edgeY = surface.ny === -1 ? b.y : b.y + b.h;
+    player.x = nextCx - player.w / 2;
+    player.y = edgeY + surface.ny * bodyHalf - player.h / 2;
+  } else {
+    const nextCy = Math.max(b.y - footHalf, Math.min(b.y + b.h + footHalf, cy));
+    const edgeX = surface.nx === -1 ? b.x : b.x + b.w;
+    player.x = edgeX + surface.nx * bodyHalf - player.w / 2;
+    player.y = nextCy - player.h / 2;
+  }
+  player.whiteAngle = Math.atan2(surface.ny, surface.nx) + Math.PI / 2;
 }
 
 export function resolveWhiteOverlap(state) {

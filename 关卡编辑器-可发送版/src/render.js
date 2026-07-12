@@ -659,27 +659,48 @@ export function draw(ctx, state) {
   ctx.save();
   if (isGreenAfterimage(state)) ctx.globalAlpha = 0.3;
   ctx.fillStyle = state.form === "green" && !isGreenAfterimage(state) ? "#56735c" : FORMS[state.form].color;
+  let playerDrawn = false;
   if (player.rollTimer > 0) {
     ctx.save();
     ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
     ctx.rotate(player.facing * (0.8 - player.rollTimer * 5));
     ctx.fillRect(-player.w / 2, -player.h * 0.35, player.w, player.h * 0.7);
     ctx.restore();
+  } else if (state.form === "white" && Number.isFinite(player.whiteAngle)) {
+    ctx.save();
+    ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+    ctx.rotate(player.whiteAngle);
+    ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+    ctx.strokeStyle = "rgba(17,25,35,0.7)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-player.w / 2 + 0.5, -player.h / 2 + 0.5, player.w - 1, player.h - 1);
+    if (player.plagueGrace > 0) {
+      ctx.strokeStyle = "rgba(244,242,230,0.75)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-player.w / 2 - 3, -player.h / 2 - 3, player.w + 6, player.h + 6);
+    }
+    ctx.fillStyle = "#111923";
+    ctx.fillRect(-player.w / 2 + 6, -player.h / 2 + 9, 4, 4);
+    ctx.fillRect(-player.w / 2 + 15, -player.h / 2 + 9, 4, 4);
+    ctx.restore();
+    playerDrawn = true;
   } else {
     ctx.fillRect(player.x, player.y, player.w, player.h);
   }
-  ctx.strokeStyle = "rgba(17,25,35,0.7)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(player.x + 0.5, player.y + 0.5, player.w - 1, player.h - 1);
-  if (player.plagueGrace > 0) {
-    ctx.strokeStyle = "rgba(244,242,230,0.75)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(player.x - 3, player.y - 3, player.w + 6, player.h + 6);
+  if (!playerDrawn) {
+    ctx.strokeStyle = "rgba(17,25,35,0.7)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(player.x + 0.5, player.y + 0.5, player.w - 1, player.h - 1);
+    if (player.plagueGrace > 0) {
+      ctx.strokeStyle = "rgba(244,242,230,0.75)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(player.x - 3, player.y - 3, player.w + 6, player.h + 6);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#111923";
+    ctx.fillRect(player.x + 6, player.y + 9, 4, 4);
+    ctx.fillRect(player.x + 15, player.y + 9, 4, 4);
   }
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#111923";
-  ctx.fillRect(player.x + 6, player.y + 9, 4, 4);
-  ctx.fillRect(player.x + 15, player.y + 9, 4, 4);
   ctx.restore();
 
   drawRedQte(ctx, player);

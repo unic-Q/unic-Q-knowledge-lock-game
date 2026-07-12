@@ -153,13 +153,14 @@ function isWhiteSurfaceUsable(player, surface) {
   const b = surface.block;
   const cx = player.x + player.w / 2;
   const cy = player.y + player.h / 2;
+  const bodyHalf = player.h / 2;
   const limits = whiteCenterLimits(player, surface);
   const coord = whiteCenterCoord(player, surface);
   if (coord < limits.min - WHITE_SNAP || coord > limits.max + WHITE_SNAP) return false;
-  if (surface.face === 0) return Math.abs(cy - (b.y - player.h / 2)) <= WHITE_SNAP;
-  if (surface.face === 1) return Math.abs(cx - (b.x + b.w + player.w / 2)) <= WHITE_SNAP;
-  if (surface.face === 2) return Math.abs(cy - (b.y + b.h + player.h / 2)) <= WHITE_SNAP;
-  return Math.abs(cx - (b.x - player.w / 2)) <= WHITE_SNAP;
+  if (surface.face === 0) return Math.abs(cy - (b.y - bodyHalf)) <= WHITE_SNAP;
+  if (surface.face === 1) return Math.abs(cx - (b.x + b.w + bodyHalf)) <= WHITE_SNAP;
+  if (surface.face === 2) return Math.abs(cy - (b.y + b.h + bodyHalf)) <= WHITE_SNAP;
+  return Math.abs(cx - (b.x - bodyHalf)) <= WHITE_SNAP;
 }
 
 function faceFromNormal(surface) {
@@ -180,10 +181,11 @@ function normalFromFace(face) {
 
 function whiteCenterLimits(player, surface) {
   const b = surface.block;
+  const footHalf = player.w / 2;
   if (surface.face === 0 || surface.face === 2) {
-    return { min: b.x - player.w / 2, max: b.x + b.w + player.w / 2 };
+    return { min: b.x - footHalf, max: b.x + b.w + footHalf };
   }
-  return { min: b.y - player.h / 2, max: b.y + b.h + player.h / 2 };
+  return { min: b.y - footHalf, max: b.y + b.h + footHalf };
 }
 
 function whiteCenterCoord(player, surface) {
@@ -194,19 +196,21 @@ function whiteCenterCoord(player, surface) {
 
 function setWhiteCenterCoord(player, surface, coord) {
   const b = surface.block;
+  const bodyHalf = player.h / 2;
   if (surface.face === 0) {
     player.x = coord - player.w / 2;
-    player.y = b.y - player.h;
+    player.y = b.y - bodyHalf - player.h / 2;
   } else if (surface.face === 1) {
-    player.x = b.x + b.w;
+    player.x = b.x + b.w + bodyHalf - player.w / 2;
     player.y = coord - player.h / 2;
   } else if (surface.face === 2) {
     player.x = coord - player.w / 2;
-    player.y = b.y + b.h;
+    player.y = b.y + b.h + bodyHalf - player.h / 2;
   } else {
-    player.x = b.x - player.w;
+    player.x = b.x - bodyHalf - player.w / 2;
     player.y = coord - player.h / 2;
   }
+  player.whiteAngle = Math.atan2(surface.ny, surface.nx) + Math.PI / 2;
 }
 
 function placeWhiteOnSurface(player, surface) {
@@ -296,16 +300,19 @@ function isWhiteSurfacePlagued(state, playerBody, surface) {
 
 function contactInterval(player, surface) {
   const b = surface.block;
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const footHalf = player.w / 2;
   if (surface.nx === 0) {
-    const a = Math.max(player.x, b.x);
-    const end = Math.min(player.x + player.w, b.x + b.w);
+    const a = Math.max(cx - footHalf, b.x);
+    const end = Math.min(cx + footHalf, b.x + b.w);
     if (end - a < 5) return null;
     const y = surface.ny === -1 ? b.y - 1 : b.y + b.h + 1;
     return { a, b: end, x: (a + end) / 2, y };
   }
 
-  const a = Math.max(player.y, b.y);
-  const end = Math.min(player.y + player.h, b.y + b.h);
+  const a = Math.max(cy - footHalf, b.y);
+  const end = Math.min(cy + footHalf, b.y + b.h);
   if (end - a < 5) return null;
   const x = surface.nx === -1 ? b.x - 1 : b.x + b.w + 1;
   return { a, b: end, x, y: (a + end) / 2 };
@@ -403,6 +410,8 @@ function shootWhiteHook(state, aimBias) {
     if (anchor) end = { x: anchor.x, y: anchor.y, hit: true, surface: null, type: "anchorSwing" };
   }
   const hookLength = Math.hypot(end.x - sx, end.y - sy);
+  const hookDx = hookLength > 0.001 ? (end.x - sx) / hookLength : dx;
+  const hookDy = hookLength > 0.001 ? (end.y - sy) / hookLength : dy;
   const swingSign = aimBias ? Math.sign(aimBias) : player.facing || 1;
   player.hook = {
     sx,
@@ -411,16 +420,16 @@ function shootWhiteHook(state, aimBias) {
     y: sy,
     targetX: end.x,
     targetY: end.y,
-    dx,
-    dy,
+    dx: hookDx,
+    dy: hookDy,
     length: hookLength,
     progress: 0,
     extending: true,
     hit: end.hit,
     type: end.type || "surfacePull",
     surface: end.surface,
-    nx: -dx,
-    ny: -dy,
+    nx: -hookDx,
+    ny: -hookDy,
     hold: 0,
     pulling: false,
     swingSign,
