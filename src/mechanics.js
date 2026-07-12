@@ -8,7 +8,7 @@ import {
   WHITE_SNAP, ERODE_RATE, ERODE_FAST, WALL_TOUCH_RANGE,
 } from "./constants.js";
 import {
-  activeBlocks, findWhiteSurface, snapWhiteToSurface, resolveWhiteOverlap, rectsOverlap,
+  activeBlocks, findWhiteSurface, rectsOverlap,
   transformedRect, isGroundedNow, rotatePoint,
 } from "./physics.js";
 
@@ -70,37 +70,19 @@ export function updateNone(state, input, dt) {
 export function updateWhite(state, input, dt) {
   const { player } = state;
   if (updateWhiteHookPull(state, input.upHeld, dt)) return;
+  player.whiteTurnCooldown = Math.max(0, (player.whiteTurnCooldown || 0) - dt);
 
   const rememberedSurface = normalizeWhiteSurface(player.whiteSurface);
-  const surface = isWhiteSurfaceUsable(player, rememberedSurface) ? rememberedSurface : findWhiteSurface(state);
+  const surface = isWhiteSurfaceUsable(player, rememberedSurface) ? rememberedSurface : (rememberedSurface ? null : findWhiteSurface(state));
   if (surface) {
-    const previousSurface = player.whiteSurface;
-    const previousBody = { x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague };
-    player.whiteSurface = { nx: surface.nx, ny: surface.ny, block: surface.block };
-    snapWhiteToSurface(player, surface);
     const dir = input.right ? 1 : input.left ? -1 : 0;
-    const tx = -surface.ny;
-    const ty = surface.nx;
-    const speed = isWhiteSurfacePlagued(state, previousBody, surface) ? WHITE_PLAGUE_SPEED : WHITE_SURFACE_SPEED;
-    player.x += tx * speed * dir * dt;
-    player.y += ty * speed * dir * dt;
-    const overlapSurface = resolveWhiteOverlap(state);
-    const nearbySurface = findWhiteSurface(state);
-    const nextSurface = overlapSurface || sameNormalSurface(nearbySurface, surface) || exteriorCornerSurface(player, surface, dir) || nearbySurface;
-    if (nextSurface) {
-      player.whiteSurface = { nx: nextSurface.nx, ny: nextSurface.ny, block: nextSurface.block };
-      snapWhiteToSurface(player, nextSurface);
-    }
+    player.whiteSurface = normalizeWhiteSurface({ ...surface, block: surface.block });
+    placeWhiteOnSurface(player, player.whiteSurface);
     player.vx = 0;
     player.vy = 0;
     if (dir !== 0) {
       player.facing = dir;
-      const plagueDir = surface.nx === 0 ? Math.sign(tx * dir) : Math.sign(ty * dir);
-      if (previousSurface && (previousSurface.nx !== player.whiteSurface.nx || previousSurface.ny !== player.whiteSurface.ny)) {
-        addPlagueSegment(previousBody, previousSurface, true, plagueDir);
-      }
-      addPlagueSegment(previousBody, previousSurface || player.whiteSurface, false, plagueDir);
-      trimPlague(player);
+      moveWhiteOnSurface(state, dir, dt);
     }
   } else {
     player.whiteSurface = null;
@@ -119,33 +101,132 @@ export function updateWhite(state, input, dt) {
   updateWhiteHookPull(state, input.upHeld, dt);
 }
 
-function sameNormalSurface(candidate, surface) {
-  if (!candidate || !surface) return null;
-  return candidate.nx === surface.nx && candidate.ny === surface.ny ? candidate : null;
-}
-
-function exteriorCornerSurface(player, surface, dir) {
-  if (!dir) return null;
-  const b = surface.block;
-  const cx = player.x + player.w / 2;
-  const cy = player.y + player.h / 2;
-
-  if (surface.nx === 0) {
-    if (cx > b.x + b.w) return { nx: 1, ny: 0, block: b };
-    if (cx < b.x) return { nx: -1, ny: 0, block: b };
-  }
-  if (surface.ny === 0) {
-    if (cy > b.y + b.h) return { nx: 0, ny: 1, block: b };
-    if (cy < b.y) return { nx: 0, ny: -1, block: b };
-  }
-  return null;
-}
-
 function normalizeWhiteSurface(surface) {
   if (!surface || !surface.block) return null;
   const face = Number.isInteger(surface.face) ? surface.face : faceFromNormal(surface);
   const normal = normalFromFace(face);
   return { ...surface, face, nx: normal.nx, ny: normal.ny };
+}
+
+function moveWhiteOnSurface(state, dir, dt) {
+  const { player } = state;
+  let remaining = Math.max(0, whiteMoveSpeed(state, player, player.whiteSurface) * dt);
+  let guard = 0;
+  while (remaining > 0.001 && guard < 4) {
+    guard += 1;
+    const surface = normalizeWhiteSurface(player.whiteSurface);
+    if (!surface || !surface.block) break;
+    player.whiteSurface = surface;
+    const previousBody = { x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague };
+    const sign = whiteSurfaceCoordSign(surface, dir);
+    const coord = whiteCenterCoord(player, surface);
+    const limits = whiteCenterLimits(player, surface);
+    const target = coord + sign * remaining;
+    const edge = sign > 0 ? limits.max : limits.min;
+    const reachesEdge = sign > 0 ? target > limits.max : target < limits.min;
+    if (!reachesEdge) {
+      setWhiteCenterCoord(player, surface, target);
+      addPlagueSegment(previousBody, surface, false, sign);
+      trimPlague(player);
+      break;
+    }
+
+    const toEdge = Math.abs(edge - coord);
+    setWhiteCenterCoord(player, surface, edge);
+    addPlagueSegment(previousBody, surface, false, sign);
+    trimPlague(player);
+    remaining -= toEdge;
+    if (player.whiteTurnCooldown > 0) break;
+
+    const edgeIsMax = sign > 0;
+    const next = findSameFaceContinuation(state, surface, edge, edgeIsMax) ||
+      findInnerCornerSurface(state, surface, dir) ||
+      exteriorCornerSurface(surface, edgeIsMax);
+    if (!next) {
+      player.whiteSurface = null;
+      break;
+    }
+    player.whiteSurface = normalizeWhiteSurface(next);
+    setWhiteCenterCoord(player, player.whiteSurface, cornerCoordForTurn(player, surface.face, player.whiteSurface, edge));
+    addPlagueSegment({ x: player.x, y: player.y, w: player.w, h: player.h, plague: player.plague }, player.whiteSurface, true, whiteSurfaceCoordSign(player.whiteSurface, dir));
+    trimPlague(player);
+    if (player.whiteSurface.face !== surface.face) {
+      player.whiteTurnCooldown = 0.08;
+      break;
+    }
+  }
+}
+
+function whiteMoveSpeed(state, player, surface) {
+  return isWhiteSurfacePlagued(state, { x: player.x, y: player.y, w: player.w, h: player.h }, surface)
+    ? WHITE_PLAGUE_SPEED
+    : WHITE_SURFACE_SPEED;
+}
+
+function whiteSurfaceCoordSign(surface, dir) {
+  return surface.face === 2 || surface.face === 3 ? -dir : dir;
+}
+
+function findSameFaceContinuation(state, surface, edgeCoord, edgeIsMax) {
+  const face = surface.face;
+  const normal = normalFromFace(face);
+  const { player } = state;
+  for (const block of activeBlocks(state)) {
+    if (block === surface.block) continue;
+    const candidate = normalizeWhiteSurface({ block, face, nx: normal.nx, ny: normal.ny });
+    const limits = whiteCenterLimits(player, candidate);
+    if (edgeCoord < limits.min - 2 || edgeCoord > limits.max + 2) continue;
+    if (Math.abs(faceEdgeValue(surface.block, face) - faceEdgeValue(block, face)) > 2) continue;
+    if ((face === 0 || face === 2) && edgeIsMax && Math.abs(block.x - (edgeCoord - player.w / 2)) > 2) continue;
+    if ((face === 0 || face === 2) && !edgeIsMax && Math.abs(block.x + block.w - (edgeCoord + player.w / 2)) > 2) continue;
+    if ((face === 1 || face === 3) && edgeIsMax && Math.abs(block.y - (edgeCoord - player.h / 2)) > 2) continue;
+    if ((face === 1 || face === 3) && !edgeIsMax && Math.abs(block.y + block.h - (edgeCoord + player.h / 2)) > 2) continue;
+    return candidate;
+  }
+  return null;
+}
+
+function findInnerCornerSurface(state, surface, dir) {
+  const tx = -surface.ny * dir;
+  const ty = surface.nx * dir;
+  const cx = state.player.x + state.player.w / 2;
+  const cy = state.player.y + state.player.h / 2;
+  const probe = { x: cx + tx * 10 - surface.nx * 8, y: cy + ty * 10 - surface.ny * 8, w: 2, h: 2 };
+  const block = activeBlocks(state).find((b) => b !== surface.block && rectsOverlap(probe, b));
+  if (!block) return null;
+  const nextNormal = { nx: -tx, ny: -ty };
+  return normalizeWhiteSurface({ block, ...nextNormal });
+}
+
+function exteriorCornerSurface(surface, edgeIsMax) {
+  const nextFace = adjacentFaceForEdge(surface.face, edgeIsMax);
+  const normal = normalFromFace(nextFace);
+  return { block: surface.block, face: nextFace, nx: normal.nx, ny: normal.ny };
+}
+
+function adjacentFaceForEdge(face, edgeIsMax) {
+  if (face === 0 || face === 2) return edgeIsMax ? 1 : 3;
+  return edgeIsMax ? 2 : 0;
+}
+
+function cornerCoordForTurn(player, oldFace, newSurface, oldEdge) {
+  const limits = whiteCenterLimits(player, newSurface);
+  if (newSurface.face === 1 || newSurface.face === 3) {
+    if (oldFace === 0) return limits.min;
+    if (oldFace === 2) return limits.max;
+  }
+  if (newSurface.face === 0 || newSurface.face === 2) {
+    if (oldFace === 3) return limits.min;
+    if (oldFace === 1) return limits.max;
+  }
+  return Math.max(limits.min, Math.min(limits.max, oldEdge));
+}
+
+function faceEdgeValue(block, face) {
+  if (face === 0) return block.y;
+  if (face === 1) return block.x + block.w;
+  if (face === 2) return block.y + block.h;
+  return block.x;
 }
 
 function isWhiteSurfaceUsable(player, surface) {
