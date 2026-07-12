@@ -4,6 +4,23 @@ import {
   COLS, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FLAG_W, FLAG_H,
 } from "./constants.js";
 
+function normalizeLightningChains(data) {
+  if (Array.isArray(data?.lightningChains)) {
+    return data.lightningChains
+      .map((chain) => ({
+        nodes: Array.isArray(chain?.nodes)
+          ? chain.nodes.filter((node) => Number.isInteger(node?.x) && Number.isInteger(node?.y)).map((node) => ({ ...node }))
+          : [],
+        closed: Boolean(chain?.closed),
+      }))
+      .filter((chain) => chain.nodes.length);
+  }
+  const nodes = Array.isArray(data?.lightningNodes)
+    ? data.lightningNodes.filter((node) => Number.isInteger(node?.x) && Number.isInteger(node?.y)).map((node) => ({ ...node }))
+    : [];
+  return nodes.length ? [{ nodes, closed: false }] : [];
+}
+
 export const roomLinks = {
   1: { r: 2, u: 12 },
   2: { l: 1, r: 3 },
@@ -457,6 +474,11 @@ function applyRoomPattern(grid, id) {
 }
 
 export function parseRoom(data) {
+  const roomSize = Number(data.roomSize) === 40 ? 40 : 20;
+  const rows = Array.isArray(data.blocks) ? Math.max(roomSize, data.blocks.length) : roomSize;
+  const cols = Array.isArray(data.blocks)
+    ? Math.max(roomSize, ...data.blocks.map((row) => String(row || "").length))
+    : roomSize;
   const blocks = [];
   const platforms = [];
   const breakablePlatforms = [];
@@ -475,6 +497,35 @@ export function parseRoom(data) {
   const abilityPickups = [];
   const coins = [];
   const hiddenTriggers = [];
+  const emitters = (data.emitters || []).map((item, index) => ({
+    index,
+    x: Number(item.x || 0) * TILE,
+    y: Number(item.y || 0) * TILE,
+    w: TILE,
+    h: TILE,
+    dx: Number(item.dx || 1),
+    dy: Number(item.dy || 0),
+    hazard: item.hazard || "spike",
+    size: Number(item.size || 0.5),
+    period: Number(item.period || 2),
+    duty: Number(item.duty || 0.35),
+    speed: Number(item.speed || 6),
+    trackingTime: Number.isFinite(Number(item.trackingTime)) ? Math.max(0, Math.min(3, Number(item.trackingTime))) : (item.tracking ? 2 : 0),
+    path: normalizePathPoints(item.path),
+    pathIndex: 1,
+    moveSpeed: Math.max(0, Number(item.moveSpeed || 0)) * TILE,
+    cooldown: 0,
+    timer: 0,
+    targetKey: `emitter:${index}`,
+    disabled: false,
+  }));
+  const sequencers = (data.sequencers || []).map((item) => ({
+    ...item,
+    timer: 0,
+    started: item.mode !== "conditional",
+    finished: false,
+    prevCondition: undefined,
+  }));
   data.blocks.forEach((row, y) => {
     [...row].forEach((cell, x) => {
       const b = { x: x * TILE, y: y * TILE, w: TILE, h: TILE, hp: 1, maxHp: 1, sink: 0, broken: false };
@@ -535,14 +586,30 @@ export function parseRoom(data) {
       }
     });
   });
-  for (const surface of data.surfacePlagues || []) {
+  const cellHasBody = (x, y) => {
+    const cell = data.blocks[y]?.[x];
+    return Boolean(cell && cell !== ".");
+  };
+  const plagueSurfaceHasBody = (surface) => {
+    if (surface.face === 0) return cellHasBody(surface.x, surface.y) || cellHasBody(surface.x, surface.y - 1);
+    if (surface.face === 1) return cellHasBody(surface.x, surface.y) || cellHasBody(surface.x + 1, surface.y);
+    return cellHasBody(surface.x, surface.y);
+  };
+  for (const rawSurface of data.surfacePlagues || []) {
+    const surface = normalizeSurfacePlague(rawSurface);
+    if (!surface) continue;
     const segment = plagueSegmentFromSurface(surface);
-    if (segment) plagueHazards.push(segment);
+    if (segment) {
+      segment.targetKey = `plague:${surface.x},${surface.y},${surface.face}`;
+      segment.disabled = false;
+      plagueHazards.push(segment);
+    }
   }
   for (const s of switches) {
     s.switchKey = `${Math.floor(s.x / TILE)},${Math.floor(s.y / TILE)}`;
   }
-  const lightningNodes = (data.lightningNodes || []).filter(node => Number.isInteger(node?.x) && Number.isInteger(node?.y));
+  const lightningChains = normalizeLightningChains(data);
+  const lightningNodes = lightningChains.flatMap(chain => chain.nodes);
   const lightningSegments = [];
   const lightningPoint = (node) => {
     if (node.face === 0) return { x: node.x * TILE + TILE / 2, y: node.y * TILE };
@@ -551,19 +618,35 @@ export function parseRoom(data) {
     if (node.face === 3) return { x: node.x * TILE, y: node.y * TILE + TILE / 2 };
     return { x: node.x * TILE + TILE / 2, y: node.y * TILE + TILE / 2 };
   };
-  for (let i = 1; i < lightningNodes.length; i += 1) {
-    const a = lightningNodes[i - 1];
-    const c = lightningNodes[i];
-    const ap = lightningPoint(a);
-    const cp = lightningPoint(c);
-    lightningSegments.push({
-      ax: ap.x,
-      ay: ap.y,
-      bx: cp.x,
-      by: cp.y,
-      targetKey: "lightning:main",
-      disabled: false,
-    });
+  for (const chain of lightningChains) {
+    for (let i = 1; i < chain.nodes.length; i += 1) {
+      const a = chain.nodes[i - 1];
+      const c = chain.nodes[i];
+      const ap = lightningPoint(a);
+      const cp = lightningPoint(c);
+      lightningSegments.push({
+        ax: ap.x,
+        ay: ap.y,
+        bx: cp.x,
+        by: cp.y,
+        targetKey: `lightning:${lightningChains.indexOf(chain)},${i - 1}`,
+        disabled: false,
+      });
+    }
+    if (chain.closed && chain.nodes.length > 2) {
+      const a = chain.nodes[chain.nodes.length - 1];
+      const c = chain.nodes[0];
+      const ap = lightningPoint(a);
+      const cp = lightningPoint(c);
+      lightningSegments.push({
+        ax: ap.x,
+        ay: ap.y,
+        bx: cp.x,
+        by: cp.y,
+        targetKey: `lightning:${lightningChains.indexOf(chain)},${chain.nodes.length - 1}`,
+        disabled: false,
+      });
+    }
   }
   for (const patrol of data.enemyPatrols || []) {
     const sx = Number(patrol?.start?.x);
@@ -587,8 +670,30 @@ export function parseRoom(data) {
       speed: TILE,
     };
   }
+  for (const item of data.advancedEnemies || []) {
+    const path = normalizePathPoints(item.path);
+    if (!path.length) continue;
+    const w = Math.max(8, Number(item.w || item.width || 1) * TILE);
+    const h = Math.max(8, Number(item.h || item.height || 1) * TILE);
+    enemies.push({
+      x: path[0].x - w / 2,
+      y: path[0].y - h / 2,
+      w,
+      h,
+      alive: true,
+      advanced: true,
+      path,
+      pathIndex: path.length > 1 ? 1 : 0,
+      speed: Math.max(0, Number(item.speed || 1)) * TILE,
+    });
+  }
   return {
     ...data,
+    roomSize,
+    cols,
+    rows,
+    width: cols * TILE,
+    height: rows * TILE,
     blocks,
     platforms,
     breakablePlatforms,
@@ -607,6 +712,9 @@ export function parseRoom(data) {
     checkpoints,
     abilityPickups,
     coins,
+    emitters,
+    sequencers,
+    lightningChains,
     lightningNodes,
     lightningSegments,
     controlBindings: Array.isArray(data.controlBindings) ? data.controlBindings : [],
@@ -614,10 +722,11 @@ export function parseRoom(data) {
 }
 
 function plagueSegmentFromSurface(surface) {
+  if (!surface) return null;
   if (!Number.isInteger(surface.x) || !Number.isInteger(surface.y) || !Number.isInteger(surface.face)) return null;
   const x = surface.x * TILE;
   const y = surface.y * TILE;
-  const inset = 3;
+  const inset = TILE * 0.05;
   const face = ((surface.face % 4) + 4) % 4;
   if (face === 0) {
     return { a: x + inset, b: x + TILE - inset, n: -y, nx: 0, ny: -1, tx: 1, ty: 0, thick: 10, seed: x + y + face };
@@ -629,4 +738,33 @@ function plagueSegmentFromSurface(surface) {
     return { a: x + inset, b: x + TILE - inset, n: y + TILE, nx: 0, ny: 1, tx: 1, ty: 0, thick: 10, seed: x + y + face };
   }
   return { a: y + inset, b: y + TILE - inset, n: -x, nx: -1, ny: 0, tx: 0, ty: 1, thick: 10, seed: x + y + face };
+}
+
+function normalizeSurfacePlague(surface) {
+  if (!surface || !Number.isInteger(surface.x) || !Number.isInteger(surface.y) || !Number.isInteger(surface.face)) return surface;
+  let { x, y } = surface;
+  let face = ((surface.face % 4) + 4) % 4;
+  if (face === 2) {
+    y += 1;
+    face = 0;
+  } else if (face === 3) {
+    x -= 1;
+    face = 1;
+  }
+  return { x, y, face };
+}
+
+function normalizePathPoints(path) {
+  return Array.isArray(path)
+    ? path
+      .map((point) => ({
+        x: Number(point?.x),
+        y: Number(point?.y),
+      }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point) => ({
+        x: point.x * TILE + TILE / 2,
+        y: point.y * TILE + TILE / 2,
+      }))
+    : [];
 }

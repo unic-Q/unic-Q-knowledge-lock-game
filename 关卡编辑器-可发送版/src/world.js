@@ -511,6 +511,9 @@ export function parseRoom(data) {
     duty: Number(item.duty || 0.35),
     speed: Number(item.speed || 6),
     trackingTime: Number.isFinite(Number(item.trackingTime)) ? Math.max(0, Math.min(3, Number(item.trackingTime))) : (item.tracking ? 2 : 0),
+    path: normalizePathPoints(item.path),
+    pathIndex: 1,
+    moveSpeed: Math.max(0, Number(item.moveSpeed || 0)) * TILE,
     cooldown: 0,
     timer: 0,
     targetKey: `emitter:${index}`,
@@ -595,7 +598,6 @@ export function parseRoom(data) {
   for (const rawSurface of data.surfacePlagues || []) {
     const surface = normalizeSurfacePlague(rawSurface);
     if (!surface) continue;
-    if (!plagueSurfaceHasBody(surface)) continue;
     const segment = plagueSegmentFromSurface(surface);
     if (segment) {
       segment.targetKey = `plague:${surface.x},${surface.y},${surface.face}`;
@@ -668,6 +670,23 @@ export function parseRoom(data) {
       speed: TILE,
     };
   }
+  for (const item of data.advancedEnemies || []) {
+    const path = normalizePathPoints(item.path);
+    if (!path.length) continue;
+    const w = Math.max(8, Number(item.w || item.width || 1) * TILE);
+    const h = Math.max(8, Number(item.h || item.height || 1) * TILE);
+    enemies.push({
+      x: path[0].x - w / 2,
+      y: path[0].y - h / 2,
+      w,
+      h,
+      alive: true,
+      advanced: true,
+      path,
+      pathIndex: path.length > 1 ? 1 : 0,
+      speed: Math.max(0, Number(item.speed || 1)) * TILE,
+    });
+  }
   return {
     ...data,
     roomSize,
@@ -733,4 +752,19 @@ function normalizeSurfacePlague(surface) {
     face = 1;
   }
   return { x, y, face };
+}
+
+function normalizePathPoints(path) {
+  return Array.isArray(path)
+    ? path
+      .map((point) => ({
+        x: Number(point?.x),
+        y: Number(point?.y),
+      }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point) => ({
+        x: point.x * TILE + TILE / 2,
+        y: point.y * TILE + TILE / 2,
+      }))
+    : [];
 }

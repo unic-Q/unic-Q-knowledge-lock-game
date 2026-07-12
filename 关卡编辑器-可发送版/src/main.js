@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 import {
   WIDTH, HEIGHT, COLS, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FORMS, GRAVITY,
@@ -23,6 +23,7 @@ let prevKeys = new Set();
 let lastTime = 0;
 let debugSendTimer = 0;
 let audioCtx = null;
+let mapDrag = null;
 const urlParams = new URLSearchParams(window.location.search);
 
 const state = {
@@ -37,7 +38,9 @@ const state = {
   unlockedForms: new Set(),
   choosing: false,
   mapOpen: false,
+  mapPan: { x: 0, y: 0 },
   visitedRooms: new Set(),
+  mapPositions: null,
   greenAfterimageMemory: false,
   worldRot: 0,
   shake: 0,
@@ -144,7 +147,6 @@ function normalizePlaytestSurfacePlagues(surfacePlagues, blocks) {
   const seen = new Set();
   return Array.isArray(surfacePlagues) ? surfacePlagues.map(normalizeSurfacePlague).filter((item) => {
     if (!item) return false;
-    if (!playtestPlagueSurfaceHasBody(blocks, item)) return false;
     const key = `${item.x},${item.y},${item.face}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -203,6 +205,7 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     sequencers: Array.isArray(room?.sequencers) ? room.sequencers : [],
     targetDefaults: normalizeTargetDefaults(room?.targetDefaults),
     enemyPatrols: Array.isArray(room?.enemyPatrols) ? room.enemyPatrols : [],
+    advancedEnemies: Array.isArray(room?.advancedEnemies) ? room.advancedEnemies : [],
   };
 }
 
@@ -255,6 +258,7 @@ async function loadExportedWorld() {
   rooms.sort((a, b) => a.id - b.id);
   state.worldRooms = rooms;
   state.roomIndexById = new Map(rooms.map((room, index) => [room.id, index]));
+  state.mapPositions = payload.map?.positions || null;
   state.overallPlaytest = true;
   loadRoom(0);
   return true;
@@ -355,6 +359,7 @@ function setupEditorWorldPlaytest() {
     name: room.name || `总体试玩 ${String(room.id ?? index + 1).padStart(2, "0")}`,
   }, index + 1));
   state.roomIndexById = new Map(state.worldRooms.map((item, index) => [item.id, index]));
+  state.mapPositions = data.map?.positions || null;
   const startIndex = roomIndexForId(Number(data.startRoom) || state.worldRooms[0].id);
   const startRoom = state.worldRooms[startIndex] || state.worldRooms[0];
   const startSpawn = normalizePlaytestSpawn(startRoom.spawn);
@@ -584,7 +589,16 @@ function update(dt) {
   const input = inputState();
 
   if (oneShot("KeyR")) respawn("manual");
-  if (oneShot("KeyM")) state.mapOpen = !state.mapOpen;
+  if (oneShot("KeyM")) {
+    state.mapOpen = !state.mapOpen;
+    mapDrag = null;
+    canvas.style.cursor = state.mapOpen ? "grab" : "default";
+  }
+  if (oneShot("Escape") && state.mapOpen) {
+    state.mapOpen = false;
+    mapDrag = null;
+    canvas.style.cursor = "default";
+  }
   if (oneShot("KeyN")) changeRoom("r") || loadRoom(state.roomIndex + 1, [70, ROOM_FLOOR * TILE - 28]);
   if (oneShot("KeyP")) changeRoom("l") || loadRoom(state.roomIndex - 1, [WIDTH - 70, ROOM_FLOOR * TILE - 28]);
 
@@ -874,6 +888,7 @@ function updateEmitters(dt) {
   }
   room.projectiles = room.projectiles.filter((p) => p.life > 0);
   for (const emitter of room.emitters || []) {
+    updatePathMover(emitter, dt);
     if (emitter.disabled) continue;
     emitter.timer = (emitter.timer || 0) + dt;
     const period = Math.max(0.2, emitter.period || 2);
@@ -899,6 +914,26 @@ function updateEmitters(dt) {
       life: 8,
     });
   }
+}
+
+function updatePathMover(entity, dt) {
+  if (!Array.isArray(entity.path) || entity.path.length < 2 || !entity.moveSpeed) return;
+  entity.pathIndex ||= 1;
+  const target = entity.path[entity.pathIndex % entity.path.length];
+  const cx = entity.x + entity.w / 2;
+  const cy = entity.y + entity.h / 2;
+  const dx = target.x - cx;
+  const dy = target.y - cy;
+  const distance = Math.hypot(dx, dy);
+  const step = entity.moveSpeed * dt;
+  if (distance <= Math.max(0.001, step)) {
+    entity.x = target.x - entity.w / 2;
+    entity.y = target.y - entity.h / 2;
+    entity.pathIndex = (entity.pathIndex + 1) % entity.path.length;
+    return;
+  }
+  entity.x += dx / distance * step;
+  entity.y += dy / distance * step;
 }
 
 function protectSideHazard(player, side) {
@@ -1114,7 +1149,7 @@ function targetKeyForControlTarget(target) {
 
 function updateSequencers(room, switchStates, targetControllers, dt) {
   for (const sequencer of room.sequencers || []) {
-    for (const target of sequencer.targets || []) {
+    for (const target of sequencerTargets(sequencer)) {
       const key = targetKeyForControlTarget(target);
       if (!targetControllers.has(key)) targetControllers.set(key, []);
       targetControllers.get(key).push(false);
@@ -1128,6 +1163,10 @@ function updateSequencers(room, switchStates, targetControllers, dt) {
     }
     if (!sequencer.started) continue;
     sequencer.timer += dt;
+    if (Array.isArray(sequencer.events) && sequencer.events.length) {
+      updateEventSequencer(sequencer, targetControllers);
+      continue;
+    }
     const interval = Math.max(0.2, Number(sequencer.interval || 1));
     const duration = Math.max(0.05, Number(sequencer.duration || interval));
     const targets = sequencer.targets || [];
@@ -1143,6 +1182,36 @@ function updateSequencers(room, switchStates, targetControllers, dt) {
     if (!activeInStep) continue;
     const key = targetKeyForControlTarget(targets[index]);
     targetControllers.get(key).push(true);
+  }
+}
+
+function sequencerTargets(sequencer) {
+  if (Array.isArray(sequencer.events) && sequencer.events.length) {
+    return sequencer.events.flatMap((event) => event.targets || []);
+  }
+  return sequencer.targets || [];
+}
+
+function updateEventSequencer(sequencer, targetControllers) {
+  let cursor = 0;
+  const timeline = [];
+  for (const event of sequencer.events || []) {
+    cursor += Math.max(0, Number(event.delay || 0));
+    const duration = Math.max(0.05, Number(event.duration || 0.5));
+    timeline.push({ start: cursor, end: cursor + duration, targets: event.targets || [] });
+  }
+  const total = Math.max(0.05, timeline.reduce((max, event) => Math.max(max, event.end), 0));
+  if (!sequencer.loop && sequencer.timer >= total) {
+    sequencer.finished = true;
+    return;
+  }
+  const t = sequencer.loop ? sequencer.timer % total : sequencer.timer;
+  for (const event of timeline) {
+    if (t < event.start || t >= event.end) continue;
+    for (const target of event.targets) {
+      const key = targetKeyForControlTarget(target);
+      targetControllers.get(key)?.push(true);
+    }
   }
 }
 
@@ -1275,7 +1344,12 @@ function refreshRoll(player) {
 
 function updateEnemyPatrols(dt) {
   for (const enemy of state.room.enemies || []) {
-    if (!enemy.alive || !enemy.patrol?.axis) continue;
+    if (!enemy.alive) continue;
+    if (enemy.path) {
+      updatePathMover(enemy, dt);
+      continue;
+    }
+    if (!enemy.patrol?.axis) continue;
     const patrol = enemy.patrol;
     const axis = patrol.axis;
     enemy[axis] += patrol.direction * patrol.speed * dt;
@@ -1353,9 +1427,48 @@ function frame(time) {
 
 window.addEventListener("keydown", (event) => {
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
+  if (event.code === "Escape" && state.mapOpen) event.preventDefault();
   keys.add(event.code);
 });
 window.addEventListener("keyup", (event) => keys.delete(event.code));
+
+function canvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+canvas.addEventListener("mousedown", (event) => {
+  if (!state.mapOpen || event.button !== 0) return;
+  event.preventDefault();
+  const point = canvasPoint(event);
+  mapDrag = { x: point.x, y: point.y, panX: state.mapPan.x, panY: state.mapPan.y };
+  canvas.style.cursor = "grabbing";
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!mapDrag) return;
+  const point = canvasPoint(event);
+  state.mapPan.x = mapDrag.panX + point.x - mapDrag.x;
+  state.mapPan.y = mapDrag.panY + point.y - mapDrag.y;
+});
+
+window.addEventListener("mouseup", () => {
+  if (!mapDrag) return;
+  mapDrag = null;
+  canvas.style.cursor = state.mapOpen ? "grab" : "default";
+});
+
+canvas.addEventListener("wheel", (event) => {
+  if (!state.mapOpen) return;
+  event.preventDefault();
+  state.mapPan.x -= event.shiftKey ? event.deltaY : event.deltaX;
+  state.mapPan.y -= event.shiftKey ? 0 : event.deltaY;
+}, { passive: false });
 
 async function bootstrap() {
   try {

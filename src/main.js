@@ -6,7 +6,7 @@ import {
 } from "./constants.js";
 import { makePlayer } from "./player.js";
 import { parseRoom, worldRooms } from "./world.js";
-import { rectsOverlap, moveAxis, pointNearSegment, transformedRect, rotatePoint } from "./physics.js";
+import { rectsOverlap, moveAxis, pointNearSegment, transformedRect, rotatePoint, activeBlocks } from "./physics.js";
 import { updateNone, updateWhite, updateRed, updateGreen, updateBlack } from "./mechanics.js";
 import { draw } from "./render.js";
 
@@ -23,6 +23,7 @@ let prevKeys = new Set();
 let lastTime = 0;
 let debugSendTimer = 0;
 let audioCtx = null;
+let mapDrag = null;
 const urlParams = new URLSearchParams(window.location.search);
 
 const state = {
@@ -37,7 +38,9 @@ const state = {
   unlockedForms: new Set(),
   choosing: false,
   mapOpen: false,
+  mapPan: { x: 0, y: 0 },
   visitedRooms: new Set(),
+  mapPositions: null,
   greenAfterimageMemory: false,
   worldRot: 0,
   shake: 0,
@@ -83,6 +86,8 @@ function inputState() {
 function loadRoom(index, spawn) {
   state.roomIndex = Math.max(0, Math.min(index, state.worldRooms.length - 1));
   state.room = parseRoom(state.worldRooms[state.roomIndex]);
+  canvas.width = state.room.width || WIDTH;
+  canvas.height = state.room.height || HEIGHT;
   state.visitedRooms.add(state.room.id);
   const start = spawn || state.room.spawn;
   state.player = makePlayer(start[0], start[1]);
@@ -101,11 +106,13 @@ function roomIndexForId(id) {
   return state.roomIndexById.get(numericId) ?? Math.max(0, Math.min(numericId - 1, state.worldRooms.length - 1));
 }
 
-function normalizePlaytestBlocks(blocks) {
+function normalizePlaytestBlocks(blocks, requestedSize = 20) {
   const source = Array.isArray(blocks) ? blocks : [];
-  return Array.from({ length: ROWS }, (_, y) => {
+  const size = Number(requestedSize) === 40 || source.length > 20 ||
+    source.some((row) => String(Array.isArray(row) ? row.join("") : row || "").length > 20) ? 40 : 20;
+  return Array.from({ length: size }, (_, y) => {
     const row = Array.isArray(source[y]) ? source[y].join("") : String(source[y] || "");
-    return row.padEnd(COLS, ".").slice(0, COLS);
+    return row.padEnd(size, ".").slice(0, size);
   });
 }
 
@@ -125,53 +132,109 @@ function normalizePlaytestSpawn(spawn) {
   return [70, ROOM_FLOOR * TILE - 28];
 }
 
-function normalizePlaytestSurfacePlagues(surfacePlagues) {
-  return Array.isArray(surfacePlagues) ? surfacePlagues.filter((item) =>
-    Number.isInteger(item?.x) && Number.isInteger(item?.y) && Number.isInteger(item?.face)
-  ) : [];
+function playtestCellHasBody(blocks, x, y) {
+  const cell = blocks[y]?.[x];
+  return Boolean(cell && cell !== ".");
+}
+
+function playtestPlagueSurfaceHasBody(blocks, surface) {
+  if (surface.face === 0) return playtestCellHasBody(blocks, surface.x, surface.y) || playtestCellHasBody(blocks, surface.x, surface.y - 1);
+  if (surface.face === 1) return playtestCellHasBody(blocks, surface.x, surface.y) || playtestCellHasBody(blocks, surface.x + 1, surface.y);
+  return playtestCellHasBody(blocks, surface.x, surface.y);
+}
+
+function normalizePlaytestSurfacePlagues(surfacePlagues, blocks) {
+  const seen = new Set();
+  return Array.isArray(surfacePlagues) ? surfacePlagues.map(normalizeSurfacePlague).filter((item) => {
+    if (!item) return false;
+    const key = `${item.x},${item.y},${item.face}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }) : [];
+}
+
+function normalizeSurfacePlague(item) {
+  if (!Number.isInteger(item?.x) || !Number.isInteger(item?.y) || !Number.isInteger(item?.face)) return null;
+  let { x, y } = item;
+  let face = ((item.face % 4) + 4) % 4;
+  if (face === 2) {
+    y += 1;
+    face = 0;
+  } else if (face === 3) {
+    x -= 1;
+    face = 1;
+  }
+  return { x, y, face };
+}
+
+function normalizeTargetDefaults(defaults) {
+  if (!defaults || typeof defaults !== "object") return {};
+  const normalized = {};
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!key.startsWith("plague:")) {
+      normalized[key] = value;
+      continue;
+    }
+    const [x, y, face] = key.slice("plague:".length).split(",").map(Number);
+    const surface = normalizeSurfacePlague({ x, y, face });
+    if (surface) normalized[`plague:${surface.x},${surface.y},${surface.face}`] = value;
+  }
+  return normalized;
 }
 
 function normalizePlaytestRoom(room, fallbackId = 1) {
   const id = Number.isFinite(Number(room?.id ?? room?.room)) ? Number(room.id ?? room.room) : fallbackId;
+  const roomSize = Number(room?.roomSize) === 40 ? 40 : 20;
+  const blocks = normalizePlaytestBlocks(room?.blocks, roomSize);
   return {
     id,
+    roomSize,
     name: room?.name || `试玩房间 ${String(id).padStart(2, "0")}`,
     spawn: room?.spawn === null ? null : normalizePlaytestSpawn(room?.spawn),
     worldStart: Boolean(room?.worldStart),
     flag: null,
     helmet: null,
     links: room?.links && typeof room.links === "object" ? room.links : {},
-    blocks: normalizePlaytestBlocks(room?.blocks),
-    surfacePlagues: normalizePlaytestSurfacePlagues(room?.surfacePlagues),
+    blocks,
+    surfacePlagues: normalizePlaytestSurfacePlagues(room?.surfacePlagues, blocks),
     controlBindings: Array.isArray(room?.controlBindings) ? room.controlBindings : [],
+    lightningChains: Array.isArray(room?.lightningChains) ? room.lightningChains : [],
     lightningNodes: Array.isArray(room?.lightningNodes) ? room.lightningNodes : [],
+    emitters: Array.isArray(room?.emitters) ? room.emitters : [],
+    sequencers: Array.isArray(room?.sequencers) ? room.sequencers : [],
+    targetDefaults: normalizeTargetDefaults(room?.targetDefaults),
     enemyPatrols: Array.isArray(room?.enemyPatrols) ? room.enemyPatrols : [],
+    advancedEnemies: Array.isArray(room?.advancedEnemies) ? room.advancedEnemies : [],
   };
 }
 
 function linksFromMapPositions(rooms, positions) {
   const links = Object.fromEntries(rooms.map((room) => [String(room.id), {}]));
   const entries = rooms
-    .map((room) => ({ id: room.id, ...(positions?.[String(room.id)] || {}) }))
+    .map((room) => ({
+      id: room.id,
+      scale: Number(room.roomSize) === 40 ? 2 : 1,
+      ...(positions?.[String(room.id)] || {}),
+    }))
     .filter((room) => Number.isFinite(room.x) && Number.isFinite(room.y));
   if (!entries.length) return links;
 
   const tolerance = 8;
-  const maxGap = 150;
   for (const room of entries) {
-    const candidates = { l: [], r: [], u: [], d: [] };
     for (const other of entries) {
       if (room.id === other.id) continue;
-      const dx = other.x - room.x;
-      const dy = other.y - room.y;
-      if (Math.abs(dy) <= tolerance && dx > 0 && dx <= maxGap) candidates.r.push({ id: other.id, gap: dx });
-      if (Math.abs(dy) <= tolerance && dx < 0 && -dx <= maxGap) candidates.l.push({ id: other.id, gap: -dx });
-      if (Math.abs(dx) <= tolerance && dy > 0 && dy <= maxGap) candidates.d.push({ id: other.id, gap: dy });
-      if (Math.abs(dx) <= tolerance && dy < 0 && -dy <= maxGap) candidates.u.push({ id: other.id, gap: -dy });
-    }
-    for (const dir of ["l", "r", "u", "d"]) {
-      candidates[dir].sort((a, b) => a.gap - b.gap);
-      if (candidates[dir][0]) links[String(room.id)][dir] = candidates[dir][0].id;
+      const roomW = 116 * room.scale;
+      const roomH = 104 * room.scale;
+      const otherW = 116 * other.scale;
+      const otherH = 104 * other.scale;
+      const yOverlap = Math.min(room.y + roomH, other.y + otherH) - Math.max(room.y, other.y) >= 16;
+      const xOverlap = Math.min(room.x + roomW, other.x + otherW) - Math.max(room.x, other.x) >= 16;
+      const link = { id: other.id, offsetX: room.x - other.x, offsetY: room.y - other.y };
+      if (yOverlap && Math.abs(other.x - (room.x + roomW)) <= tolerance) links[String(room.id)].r = link;
+      if (yOverlap && Math.abs(other.x + otherW - room.x) <= tolerance) links[String(room.id)].l = link;
+      if (xOverlap && Math.abs(other.y - (room.y + roomH)) <= tolerance) links[String(room.id)].d = link;
+      if (xOverlap && Math.abs(other.y + otherH - room.y) <= tolerance) links[String(room.id)].u = link;
     }
   }
   return links;
@@ -195,6 +258,7 @@ async function loadExportedWorld() {
   rooms.sort((a, b) => a.id - b.id);
   state.worldRooms = rooms;
   state.roomIndexById = new Map(rooms.map((room, index) => [room.id, index]));
+  state.mapPositions = payload.map?.positions || null;
   state.overallPlaytest = true;
   loadRoom(0);
   return true;
@@ -295,6 +359,7 @@ function setupEditorWorldPlaytest() {
     name: room.name || `总体试玩 ${String(room.id ?? index + 1).padStart(2, "0")}`,
   }, index + 1));
   state.roomIndexById = new Map(state.worldRooms.map((item, index) => [item.id, index]));
+  state.mapPositions = data.map?.positions || null;
   const startIndex = roomIndexForId(Number(data.startRoom) || state.worldRooms[0].id);
   const startRoom = state.worldRooms[startIndex] || state.worldRooms[0];
   const startSpawn = normalizePlaytestSpawn(startRoom.spawn);
@@ -378,16 +443,17 @@ function activateCheckpoint() {
 }
 
 function changeRoom(dir) {
-  const targetId = state.room.links[dir];
+  const link = normalizeRoomLink(state.room.links[dir]);
+  const targetId = link?.id;
   if (!targetId) return false;
   const { player } = state;
   const fromId = state.room.id;
   if (state.overallPlaytest) {
-    return seamlessChangeRoom(dir, targetId, fromId);
+    return seamlessChangeRoom(dir, link, fromId);
   }
   let spawn = [player.x, player.y];
-  if (dir === "r") spawn = safeSideSpawn(targetId, "l", 6, player.y);
-  if (dir === "l") spawn = safeSideSpawn(targetId, "r", WIDTH - player.w - 6, player.y);
+  if (dir === "r") spawn = safeSideSpawn(targetId, "l", 6, mappedSideY(targetId));
+  if (dir === "l") spawn = safeSideSpawn(targetId, "r", targetRoomSize(targetId).width - player.w - 6, mappedSideY(targetId));
   if (dir === "u") spawn = [(EXIT_BOTTOM_X + 1) * TILE + 4, ROOM_FLOOR * TILE - player.h - 2];
   if (dir === "d") spawn = [(EXIT_TOP_X + 1) * TILE + 4, 6];
   loadRoom(roomIndexForId(targetId), spawn);
@@ -395,14 +461,21 @@ function changeRoom(dir) {
   return true;
 }
 
-function seamlessChangeRoom(dir, targetId, fromId) {
+function seamlessChangeRoom(dir, link, fromId) {
   const old = state.player;
+  const targetId = link.id;
   const targetIndex = roomIndexForId(targetId);
+  const current = currentRoomSize();
+  const target = targetRoomSize(targetId);
+  const offsetX = Number(link.offsetX || 0) * (20 * TILE) / 116;
+  const offsetY = Number(link.offsetY || 0) * (20 * TILE) / 104;
   let spawn = [old.x, old.y];
-  if (dir === "r") spawn = [old.x - WIDTH, old.y];
-  if (dir === "l") spawn = [old.x + WIDTH, old.y];
-  if (dir === "u") spawn = [old.x, old.y + HEIGHT];
-  if (dir === "d") spawn = [old.x, old.y - HEIGHT];
+  if (dir === "r") spawn = [old.x - current.width, old.y + offsetY];
+  if (dir === "l") spawn = [old.x + target.width, old.y + offsetY];
+  if (dir === "u") spawn = [old.x + offsetX, old.y + target.height];
+  if (dir === "d") spawn = [old.x + offsetX, old.y - current.height];
+  spawn[0] = Math.max(0, Math.min(target.width - old.w, spawn[0]));
+  spawn[1] = Math.max(0, Math.min(target.height - old.h, spawn[1]));
 
   const preserved = {
     vx: old.vx,
@@ -438,14 +511,52 @@ function seamlessChangeRoom(dir, targetId, fromId) {
   return true;
 }
 
+function normalizeRoomLink(link) {
+  if (link && typeof link === "object") {
+    const id = Number(link.id ?? link.room ?? link.target);
+    if (!Number.isFinite(id)) return null;
+    return {
+      id,
+      offsetX: Number(link.offsetX || 0),
+      offsetY: Number(link.offsetY || 0),
+    };
+  }
+  const id = Number(link);
+  return Number.isFinite(id) ? { id, offsetX: 0, offsetY: 0 } : null;
+}
+
+function currentRoomSize() {
+  return {
+    cols: state.room?.cols || COLS,
+    rows: state.room?.rows || ROWS,
+    width: state.room?.width || WIDTH,
+    height: state.room?.height || HEIGHT,
+  };
+}
+
+function targetRoomSize(targetId) {
+  const roomDef = state.worldRooms[roomIndexForId(targetId)] || {};
+  const roomSize = Number(roomDef.roomSize) === 40 ? 40 : 20;
+  const rows = Array.isArray(roomDef.blocks) ? Math.max(roomSize, roomDef.blocks.length) : roomSize;
+  const cols = Array.isArray(roomDef.blocks)
+    ? Math.max(roomSize, ...roomDef.blocks.map((row) => String(row || "").length))
+    : roomSize;
+  return { cols, rows, width: cols * TILE, height: rows * TILE };
+}
+
+function mappedSideY(targetId) {
+  return Math.max(0, Math.min(targetRoomSize(targetId).height, state.player.y));
+}
+
 function safeSideSpawn(targetId, side, x, fallbackY) {
   const roomDef = state.worldRooms[roomIndexForId(targetId)];
-  const col = side === "l" ? 0 : COLS - 1;
+  const size = targetRoomSize(targetId);
+  const col = side === "l" ? 0 : size.cols - 1;
   const rows = [];
-  for (let row = 1; row < ROWS - 1; row += 1) {
+  for (let row = 1; row < size.rows - 1; row += 1) {
     if (roomDef.blocks[row]?.[col] === ".") rows.push(row);
   }
-  const desiredRow = Math.max(1, Math.min(ROWS - 2, Math.floor((fallbackY + state.player.h / 2) / TILE)));
+  const desiredRow = Math.max(1, Math.min(size.rows - 2, Math.floor((fallbackY + state.player.h / 2) / TILE)));
   const row = rows.length ? rows.reduce((best, current) =>
     Math.abs(current - desiredRow) < Math.abs(best - desiredRow) ? current : best
   ) : desiredRow;
@@ -453,10 +564,11 @@ function safeSideSpawn(targetId, side, x, fallbackY) {
 }
 
 function inSideExit(side) {
-  const col = side === "l" ? 0 : COLS - 1;
+  const size = currentRoomSize();
+  const col = side === "l" ? 0 : size.cols - 1;
   const grid = state.worldRooms[state.roomIndex].blocks;
   const top = Math.max(0, Math.floor(state.player.y / TILE));
-  const bottom = Math.min(ROWS - 1, Math.floor((state.player.y + state.player.h - 1) / TILE));
+  const bottom = Math.min(size.rows - 1, Math.floor((state.player.y + state.player.h - 1) / TILE));
   for (let row = top; row <= bottom; row += 1) {
     if (grid[row]?.[col] === ".") return true;
   }
@@ -477,7 +589,16 @@ function update(dt) {
   const input = inputState();
 
   if (oneShot("KeyR")) respawn("manual");
-  if (oneShot("KeyM")) state.mapOpen = !state.mapOpen;
+  if (oneShot("KeyM")) {
+    state.mapOpen = !state.mapOpen;
+    mapDrag = null;
+    canvas.style.cursor = state.mapOpen ? "grab" : "default";
+  }
+  if (oneShot("Escape") && state.mapOpen) {
+    state.mapOpen = false;
+    mapDrag = null;
+    canvas.style.cursor = "default";
+  }
   if (oneShot("KeyN")) changeRoom("r") || loadRoom(state.roomIndex + 1, [70, ROOM_FLOOR * TILE - 28]);
   if (oneShot("KeyP")) changeRoom("l") || loadRoom(state.roomIndex - 1, [WIDTH - 70, ROOM_FLOOR * TILE - 28]);
 
@@ -522,6 +643,7 @@ function update(dt) {
   moveAxis(state, "y", dt);
 
   handleSwitches(0);
+  updateEmitters(dt);
   handlePickups();
   updateBreakablePlatforms(dt);
   handleCheckpoints();
@@ -532,12 +654,13 @@ function update(dt) {
   handleHazards();
   handleRoomEdges();
 
+  const roomSize = currentRoomSize();
   const fellOut = state.form === "black"
-    ? player.y > ROWS * TILE + 360
-    : player.y > ROWS * TILE + 100;
+    ? player.y > roomSize.height + 360
+    : player.y > roomSize.height + 100;
   if (fellOut && !state.overallPlaytest) {
-    player.x = Math.max(0, Math.min(WIDTH - player.w, player.x));
-    player.y = Math.min(player.y, ROWS * TILE - player.h);
+    player.x = Math.max(0, Math.min(roomSize.width - player.w, player.x));
+    player.y = Math.min(player.y, roomSize.height - player.h);
     player.vy = 0;
   }
   state.shake = Math.max(0, state.shake - 25 * dt);
@@ -648,6 +771,7 @@ function handlePickups() {
     const key = `${room.id}:${coin.x},${coin.y}`;
     if (state.collectedCoins.has(key) || !rectsOverlap(player, coin)) continue;
     state.collectedCoins.add(key);
+    coin.taken = true;
     state.shake = Math.max(state.shake, 2);
     updateHud();
   }
@@ -686,16 +810,21 @@ function handlePickups() {
 
 function handleHazards() {
   const { player, room } = state;
+  for (const projectile of room.projectiles || []) {
+    if (!rectsOverlap(player, projectile)) continue;
+    if (projectileIgnoredByForm(projectile)) continue;
+    if (!surviveHazard(player)) return;
+  }
   for (const h of room.hazards || []) {
     if (h.disabled) continue;
     const canIgnore = h.type === "electric" && state.form === "green" && player.greenAfterimage;
     if (!canIgnore && rectsOverlap(expandedRollRect(player), h)) {
-      if (protectSideHazard(player, rectHazardSide(player, h))) continue;
       if (!surviveHazard(player)) return;
     }
   }
   if (state.form !== "white") {
     for (const p of room.plagueHazards) {
+      if (p.disabled) continue;
       if (!rectTouchesPlague(player, p, 15)) continue;
       if (protectSideHazard(player, plagueHazardSide(player, p, 15))) continue;
       if (!surviveHazard(player)) return;
@@ -721,8 +850,10 @@ function handleHazards() {
     if (segment.disabled || state.form === "green") continue;
     const a = rotatePoint(segment.ax, segment.ay, state.worldRot);
     const b = rotatePoint(segment.bx, segment.by, state.worldRot);
-    if (!rectTouchesSegment(player, a, b, 2)) continue;
-    if (protectSideHazard(player, segmentHazardSide(player, a, b, 10))) continue;
+    const hazard = insetSegment(a, b, 10);
+    if (!hazard) continue;
+    if (!rectTouchesSegment(player, hazard.a, hazard.b, 2)) continue;
+    if (protectSideHazard(player, segmentHazardSide(player, hazard.a, hazard.b, 10))) continue;
     if (!surviveHazard(player)) return;
   }
   if (!player.sideHazardContactThisFrame) {
@@ -730,6 +861,79 @@ function handleHazards() {
     player.sideHazardSide = 0;
     player.sideHazardLatched = false;
   }
+}
+
+function projectileIgnoredByForm(projectile) {
+  if (projectile.hazard === "plague") return state.form === "white";
+  if (projectile.hazard === "lightning") return state.form === "green";
+  return false;
+}
+
+function updateEmitters(dt) {
+  const { room, player } = state;
+  room.projectiles ||= [];
+  for (const projectile of room.projectiles) {
+    if (projectile.trackingTime > 0) {
+      const dx = player.x + player.w / 2 - (projectile.x + projectile.w / 2);
+      const dy = player.y + player.h / 2 - (projectile.y + projectile.h / 2);
+      const length = Math.hypot(dx, dy) || 1;
+      projectile.vx = dx / length * projectile.speed;
+      projectile.vy = dy / length * projectile.speed;
+      projectile.trackingTime -= dt;
+    }
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+    projectile.life -= dt;
+    if (activeBlocks(state).some((block) => rectsOverlap(projectile, block))) projectile.life = 0;
+  }
+  room.projectiles = room.projectiles.filter((p) => p.life > 0);
+  for (const emitter of room.emitters || []) {
+    updatePathMover(emitter, dt);
+    if (emitter.disabled) continue;
+    emitter.timer = (emitter.timer || 0) + dt;
+    const period = Math.max(0.2, emitter.period || 2);
+    const activeWindow = period * Math.max(0.05, Math.min(1, emitter.duty || 0.35));
+    const phase = emitter.timer % period;
+    emitter.cooldown = Math.max(0, (emitter.cooldown || 0) - dt);
+    if (phase > activeWindow || emitter.cooldown > 0) continue;
+    emitter.cooldown = Math.max(0.08, period / 6);
+    const size = Math.max(4, (emitter.size || 0.5) * TILE);
+    const speed = Math.max(0.5, emitter.speed || 6) * TILE;
+    const dx = emitter.dx || 1;
+    const dy = emitter.dy || 0;
+    room.projectiles.push({
+      x: emitter.x + TILE / 2 - size / 2,
+      y: emitter.y + TILE / 2 - size / 2,
+      w: size,
+      h: size,
+      vx: dx * speed,
+      vy: dy * speed,
+      speed,
+      hazard: emitter.hazard || "spike",
+      trackingTime: Math.max(0, Math.min(3, Number(emitter.trackingTime || 0))),
+      life: 8,
+    });
+  }
+}
+
+function updatePathMover(entity, dt) {
+  if (!Array.isArray(entity.path) || entity.path.length < 2 || !entity.moveSpeed) return;
+  entity.pathIndex ||= 1;
+  const target = entity.path[entity.pathIndex % entity.path.length];
+  const cx = entity.x + entity.w / 2;
+  const cy = entity.y + entity.h / 2;
+  const dx = target.x - cx;
+  const dy = target.y - cy;
+  const distance = Math.hypot(dx, dy);
+  const step = entity.moveSpeed * dt;
+  if (distance <= Math.max(0.001, step)) {
+    entity.x = target.x - entity.w / 2;
+    entity.y = target.y - entity.h / 2;
+    entity.pathIndex = (entity.pathIndex + 1) % entity.path.length;
+    return;
+  }
+  entity.x += dx / distance * step;
+  entity.y += dy / distance * step;
 }
 
 function protectSideHazard(player, side) {
@@ -763,6 +967,19 @@ function segmentHazardSide(player, a, b, radius) {
   const right = segmentsIntersect(a, b, { x: player.x + player.w, y: player.y }, { x: player.x + player.w, y: player.y + player.h }) ||
     pointNearSegment(player.x + player.w, player.y + player.h / 2, a, b) < radius;
   return left === right ? 0 : left ? -1 : 1;
+}
+
+function insetSegment(a, b, amount) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length <= amount * 2) return null;
+  const ux = dx / length;
+  const uy = dy / length;
+  return {
+    a: { x: a.x + ux * amount, y: a.y + uy * amount },
+    b: { x: b.x - ux * amount, y: b.y - uy * amount },
+  };
 }
 
 function rectTouchesSegment(rect, a, b, padding = 0) {
@@ -880,31 +1097,135 @@ function handleSwitches(dt = 0) {
   for (const binding of room.controlBindings || []) {
     const key = `${binding.switch?.x},${binding.switch?.y}`;
     for (const target of binding.targets || []) {
-      const targetKey = target.type === "lightning" ? "lightning:main" : `cell:${target.x},${target.y}`;
+      const targetKey = targetKeyForControlTarget(target);
       if (!targetControllers.has(targetKey)) targetControllers.set(targetKey, []);
       targetControllers.get(targetKey).push(Boolean(switchStates.get(key)));
     }
   }
+  updateSequencers(room, switchStates, targetControllers, dt);
   const targetActive = (key) => {
     const controllers = targetControllers.get(key);
     return Boolean(controllers?.length) && controllers.every(Boolean);
   };
   const targetControlled = (key) => Boolean(targetControllers.get(key)?.length);
+  const targetEnabled = (key, fallback = true) => {
+    const defaultEnabled = room.targetDefaults?.[key] ?? fallback;
+    if (!targetControlled(key)) return Boolean(defaultEnabled);
+    return defaultEnabled ? !targetActive(key) : targetActive(key);
+  };
 
   for (const gate of room.gates || []) {
     const shouldOpen = targetActive(gate.targetKey);
     gate.openAmount += ((shouldOpen ? 1 : 0) - gate.openAmount) * Math.min(1, dt * 8);
-    gate.open = gate.openAmount >= 0.92;
+    gate.open = shouldOpen || gate.openAmount > 0.001;
   }
   for (const hazard of room.hazards || []) {
     if (hazard.type === "spike") hazard.disabled = targetActive(hazard.targetKey);
   }
+  for (const plague of room.plagueHazards || []) {
+    if (plague.targetKey) plague.disabled = !targetEnabled(plague.targetKey, true);
+  }
   for (const coin of room.coins || []) {
     coin.disabled = targetControlled(coin.targetKey) && !targetActive(coin.targetKey);
   }
-  const lightningDisabled = targetControlled("lightning:main") && !targetActive("lightning:main");
-  room.lightningDisabled = lightningDisabled;
-  for (const segment of room.lightningSegments || []) segment.disabled = lightningDisabled;
+  room.lightningDisabled = false;
+  for (const segment of room.lightningSegments || []) {
+    segment.disabled = !targetEnabled(segment.targetKey, true);
+  }
+  for (const emitter of room.emitters || []) {
+    emitter.disabled = !targetEnabled(emitter.targetKey, true);
+  }
+}
+
+function targetKeyForControlTarget(target) {
+  if (target.type === "lightning") return `lightning:${target.chain},${target.segment}`;
+  if (target.type === "plague") {
+    const surface = normalizeSurfacePlague(target);
+    return surface ? `plague:${surface.x},${surface.y},${surface.face}` : "plague:invalid";
+  }
+  if (target.type === "emitter") return `emitter:${target.index}`;
+  return `cell:${target.x},${target.y}`;
+}
+
+function updateSequencers(room, switchStates, targetControllers, dt) {
+  for (const sequencer of room.sequencers || []) {
+    for (const target of sequencerTargets(sequencer)) {
+      const key = targetKeyForControlTarget(target);
+      if (!targetControllers.has(key)) targetControllers.set(key, []);
+      targetControllers.get(key).push(false);
+    }
+    if (sequencer.finished) continue;
+    if (!sequencer.started && sequencer.mode === "conditional") {
+      const active = sequencerConditionActive(room, switchStates, sequencer.condition);
+      const changed = sequencer.prevCondition !== undefined && active !== sequencer.prevCondition;
+      if (sequencer.condition?.type === "pickup" ? active : changed) sequencer.started = true;
+      sequencer.prevCondition = active;
+    }
+    if (!sequencer.started) continue;
+    sequencer.timer += dt;
+    if (Array.isArray(sequencer.events) && sequencer.events.length) {
+      updateEventSequencer(sequencer, targetControllers);
+      continue;
+    }
+    const interval = Math.max(0.2, Number(sequencer.interval || 1));
+    const duration = Math.max(0.05, Number(sequencer.duration || interval));
+    const targets = sequencer.targets || [];
+    if (!targets.length) continue;
+    const total = interval * targets.length;
+    if (!sequencer.loop && sequencer.timer >= total) {
+      sequencer.finished = true;
+      continue;
+    }
+    const t = sequencer.loop ? sequencer.timer % total : sequencer.timer;
+    const index = Math.min(targets.length - 1, Math.floor(t / interval));
+    const activeInStep = (t % interval) < duration;
+    if (!activeInStep) continue;
+    const key = targetKeyForControlTarget(targets[index]);
+    targetControllers.get(key).push(true);
+  }
+}
+
+function sequencerTargets(sequencer) {
+  if (Array.isArray(sequencer.events) && sequencer.events.length) {
+    return sequencer.events.flatMap((event) => event.targets || []);
+  }
+  return sequencer.targets || [];
+}
+
+function updateEventSequencer(sequencer, targetControllers) {
+  let cursor = 0;
+  const timeline = [];
+  for (const event of sequencer.events || []) {
+    cursor += Math.max(0, Number(event.delay || 0));
+    const duration = Math.max(0.05, Number(event.duration || 0.5));
+    timeline.push({ start: cursor, end: cursor + duration, targets: event.targets || [] });
+  }
+  const total = Math.max(0.05, timeline.reduce((max, event) => Math.max(max, event.end), 0));
+  if (!sequencer.loop && sequencer.timer >= total) {
+    sequencer.finished = true;
+    return;
+  }
+  const t = sequencer.loop ? sequencer.timer % total : sequencer.timer;
+  for (const event of timeline) {
+    if (t < event.start || t >= event.end) continue;
+    for (const target of event.targets) {
+      const key = targetKeyForControlTarget(target);
+      targetControllers.get(key)?.push(true);
+    }
+  }
+}
+
+function sequencerConditionActive(room, switchStates, condition) {
+  if (!condition) return false;
+  if (condition.type === "trigger") return Boolean(switchStates.get(`${condition.x},${condition.y}`));
+  if (condition.type === "pickup") {
+    const x = Number(condition.x);
+    const y = Number(condition.y);
+    return (room.coins || []).some((coin) => Math.floor(coin.x / TILE) === x && Math.floor(coin.y / TILE) === y && coin.taken) ||
+      (room.abilityPickups || []).some((item) => Math.floor(item.x / TILE) === x && Math.floor(item.y / TILE) === y && item.taken) ||
+      (room.helmet && Math.floor(room.helmet.x / TILE) === x && Math.floor(room.helmet.y / TILE) === y && room.helmet.taken);
+  }
+  return false;
 }
 
 function updateBreakablePlatforms(dt) {
@@ -987,8 +1308,6 @@ function handleEnemies() {
       player.vy = Math.min(player.vy, -360);
     } else if (player.rollTimer > 0) {
       refreshRoll(player);
-    } else if (protectSideHazard(player, rectHazardSide(player, enemy))) {
-      continue;
     } else {
       respawn("enemy");
       return;
@@ -1025,7 +1344,12 @@ function refreshRoll(player) {
 
 function updateEnemyPatrols(dt) {
   for (const enemy of state.room.enemies || []) {
-    if (!enemy.alive || !enemy.patrol?.axis) continue;
+    if (!enemy.alive) continue;
+    if (enemy.path) {
+      updatePathMover(enemy, dt);
+      continue;
+    }
+    if (!enemy.patrol?.axis) continue;
     const patrol = enemy.patrol;
     const axis = patrol.axis;
     enemy[axis] += patrol.direction * patrol.speed * dt;
@@ -1059,20 +1383,21 @@ function playRollRefresh() {
 
 function handleRoomEdges() {
   const { player } = state;
+  const size = currentRoomSize();
   if (state.overallPlaytest) {
     if (player.x <= 0 && player.vx < 0) {
       if (!changeRoom("l")) player.x = 0;
-    } else if (player.x + player.w >= WIDTH && player.vx > 0) {
-      if (!changeRoom("r")) player.x = WIDTH - player.w;
+    } else if (player.x + player.w >= size.width && player.vx > 0) {
+      if (!changeRoom("r")) player.x = size.width - player.w;
     }
     if (player.y <= 0 && player.vy < 0) {
       if (!changeRoom("u")) {
         player.y = 0;
         player.vy = Math.max(0, player.vy);
       }
-    } else if (player.y + player.h >= HEIGHT && player.vy > 0) {
+    } else if (player.y + player.h >= size.height && player.vy > 0) {
       if (!changeRoom("d")) {
-        player.y = HEIGHT - player.h;
+        player.y = size.height - player.h;
         player.vy = Math.min(0, player.vy);
         player.onGround = true;
         player.jumps = 0;
@@ -1082,13 +1407,13 @@ function handleRoomEdges() {
   }
   if (player.x <= 0 && inSideExit("l")) {
     if (!changeRoom("l")) player.x = 0;
-  } else if (player.x + player.w >= WIDTH && inSideExit("r")) {
-    if (!changeRoom("r")) player.x = WIDTH - player.w;
+  } else if (player.x + player.w >= size.width && inSideExit("r")) {
+    if (!changeRoom("r")) player.x = size.width - player.w;
   }
   if (player.y <= 0 && inTopExit()) {
     if (!changeRoom("u")) player.y = 0;
-  } else if (player.y + player.h >= ROWS * TILE && inBottomExit()) {
-    if (!changeRoom("d")) player.y = ROWS * TILE - player.h;
+  } else if (player.y + player.h >= size.height && inBottomExit()) {
+    if (!changeRoom("d")) player.y = size.height - player.h;
   }
 }
 
@@ -1102,9 +1427,48 @@ function frame(time) {
 
 window.addEventListener("keydown", (event) => {
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
+  if (event.code === "Escape" && state.mapOpen) event.preventDefault();
   keys.add(event.code);
 });
 window.addEventListener("keyup", (event) => keys.delete(event.code));
+
+function canvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+canvas.addEventListener("mousedown", (event) => {
+  if (!state.mapOpen || event.button !== 0) return;
+  event.preventDefault();
+  const point = canvasPoint(event);
+  mapDrag = { x: point.x, y: point.y, panX: state.mapPan.x, panY: state.mapPan.y };
+  canvas.style.cursor = "grabbing";
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!mapDrag) return;
+  const point = canvasPoint(event);
+  state.mapPan.x = mapDrag.panX + point.x - mapDrag.x;
+  state.mapPan.y = mapDrag.panY + point.y - mapDrag.y;
+});
+
+window.addEventListener("mouseup", () => {
+  if (!mapDrag) return;
+  mapDrag = null;
+  canvas.style.cursor = state.mapOpen ? "grab" : "default";
+});
+
+canvas.addEventListener("wheel", (event) => {
+  if (!state.mapOpen) return;
+  event.preventDefault();
+  state.mapPan.x -= event.shiftKey ? event.deltaY : event.deltaX;
+  state.mapPan.y -= event.shiftKey ? 0 : event.deltaY;
+}, { passive: false });
 
 async function bootstrap() {
   try {

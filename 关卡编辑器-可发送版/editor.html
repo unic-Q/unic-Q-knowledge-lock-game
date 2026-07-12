@@ -201,6 +201,7 @@
           <button class="action-btn" id="size-boss">40x40</button>
         </div>
         <button class="action-btn" id="btn-spawn">设置主角</button>
+        <button class="action-btn" id="btn-finish-path">完成路径</button>
         <button class="action-btn" id="btn-reach-overlay">可达区域：关</button>
         <button class="action-btn" id="btn-world-map">切换到大地图</button>
         <button class="action-btn" id="btn-clear">清空白地板</button>
@@ -250,7 +251,8 @@
       { char: 'P', name: '瘟疫', category: '表面', color: '#b8d4a0', desc: '白色扩散瘟疫' },
       { char: '~', name: '闪电链桩', category: '表面', color: '#8ee6ff', desc: '依次点击格子表面放置端点并连接闪电链' },
       { char: '!', name: '尖刺', category: '危险', color: '#9c3038', desc: '伤害陷阱，可被开关控制' },
-      { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '黑色敌人' },
+      { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '拖动设置直线巡逻敌人' },
+      { char: 'N', name: '高级敌人', category: '危险', color: '#7d3f7d', desc: '点选路径点，完成后设置大小和速度' },
       { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
       { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
       { char: '>', name: '右扳机', category: '触发器', color: '#d89b63', desc: '只能从右侧推到左侧时切换' },
@@ -262,8 +264,9 @@
       { char: 'F', name: '复活点', category: '触发器', color: '#f4c95d', desc: '死亡后在这里复活' },
       { char: 'D', name: '门', category: '机关', color: '#6f7884', desc: '全部关联开关满足后打开' },
       { char: 'A', name: '锚点', category: '机关', color: '#f4c95d', desc: '白骑士钩锁点' },
-      { char: 'Q', name: '时序装置', category: '机关', color: '#caa6ff', desc: '按间隔依次触发已选择目标' },
+      { char: 'Q', name: '时序装置', category: '机关', color: '#caa6ff', desc: '打开事件面板规划触发顺序' },
       { char: 'O', name: '灾厄喷口', category: '机关', color: '#ff8a5c', desc: '拖动放置方向，周期性发射危险物' },
+      { char: 'Y', name: '高级喷口', category: '机关', color: '#ffb15c', desc: '点选移动路径，完成后设置发射参数' },
       { char: 'G', name: '绿能力', category: '拾取物', color: '#7fa083', desc: '绿色骑士道具' },
       { char: 'R', name: '红能力', category: '拾取物', color: '#e84d4d', desc: '红色骑士道具' },
       { char: 'W', name: '白能力', category: '拾取物', color: '#f4f2e6', desc: '白色骑士道具' },
@@ -283,9 +286,11 @@
     let targetDefaults = {};
     let activeLightningChain = -1;
     let enemyPatrols = [];
+    let advancedEnemies = [];
     let emitterDrag = null;
     let pendingControlTargets = [];
     let enemyDrag = null;
+    let pathDraft = null;
     let spawn = { x: 68, y: ROOM_FLOOR * TILE - 28 };
     let currentRoom = 1;
     let editorMode = 'tile';
@@ -389,6 +394,7 @@
         sequencers: [],
         targetDefaults: {},
         enemyPatrols: [],
+        advancedEnemies: [],
         roomSize: size,
         spawn: defaultSpawn(size)
       };
@@ -501,7 +507,7 @@
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
             const size = roomSizeFromData(parsed);
-            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], spawn: defaultSpawn(size) };
+            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], spawn: defaultSpawn(size) };
           }
           const size = roomSizeFromData(parsed);
           return {
@@ -514,6 +520,7 @@
             sequencers: parsed.sequencers || [],
             targetDefaults: parsed.targetDefaults || {},
             enemyPatrols: parsed.enemyPatrols || [],
+            advancedEnemies: parsed.advancedEnemies || [],
             spawn: parsed.spawn || defaultSpawn(size)
           };
         } catch {
@@ -539,6 +546,7 @@
         targetDefaults,
         lightningNodes: allLightningNodes(),
         enemyPatrols,
+        advancedEnemies,
         spawn
       };
       localStorage.setItem(`room_${currentRoom}`, JSON.stringify(data));
@@ -561,6 +569,7 @@
         targetDefaults,
         lightningNodes: allLightningNodes(),
         enemyPatrols,
+        advancedEnemies,
         spawn
       };
     }
@@ -575,7 +584,8 @@
         !normalizeLightningChains(data).length &&
         !(data?.emitters || []).length &&
         !(data?.sequencers || []).length &&
-        !(data?.enemyPatrols || []).length;
+        !(data?.enemyPatrols || []).length &&
+        !(data?.advancedEnemies || []).length;
     }
 
     async function exportedRoomData(roomId) {
@@ -597,6 +607,7 @@
           sequencers: found.sequencers || [],
           targetDefaults: found.targetDefaults || {},
           enemyPatrols: found.enemyPatrols || [],
+          advancedEnemies: found.advancedEnemies || [],
           spawn: found.spawn || defaultSpawn(size)
         };
       } catch {
@@ -626,6 +637,7 @@
             sequencers: roomData.sequencers || [],
             targetDefaults: roomData.targetDefaults || {},
             enemyPatrols: roomData.enemyPatrols || [],
+            advancedEnemies: roomData.advancedEnemies || [],
             spawn: roomData.spawn || defaultSpawn(size)
           }));
         }
@@ -663,6 +675,7 @@
             sequencers: target.sequencers || [],
             targetDefaults: target.targetDefaults || {},
             enemyPatrols: target.enemyPatrols || [],
+            advancedEnemies: target.advancedEnemies || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -676,7 +689,7 @@
       const parsed = JSON.parse(stored);
       const size = roomSizeFromData(parsed);
       const data = Array.isArray(parsed)
-        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], spawn: defaultSpawn(size) }
+        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], spawn: defaultSpawn(size) }
         : {
           roomSize: size,
           blocks: normalizeGrid(parsed.blocks, size),
@@ -687,6 +700,7 @@
           sequencers: parsed.sequencers || [],
           targetDefaults: parsed.targetDefaults || {},
           enemyPatrols: parsed.enemyPatrols || [],
+          advancedEnemies: parsed.advancedEnemies || [],
           spawn: parsed.spawn || defaultSpawn(size)
         };
       return {
@@ -701,6 +715,7 @@
         sequencers: data.sequencers || [],
         targetDefaults: data.targetDefaults || {},
         enemyPatrols: data.enemyPatrols,
+        advancedEnemies: data.advancedEnemies || [],
         spawn: data.spawn
       };
     }
@@ -874,6 +889,7 @@
           sequencers: data.sequencers || [],
           targetDefaults: data.targetDefaults || {},
           enemyPatrols: data.enemyPatrols || [],
+          advancedEnemies: data.advancedEnemies || [],
         };
       });
       const linksByRoom = roomLinksFromMap();
@@ -884,6 +900,7 @@
       return {
         loadout: document.getElementById('playtest-loadout').value,
         startRoom: startRoomId,
+        map: collectMapLayout(),
         rooms,
       };
     }
@@ -933,8 +950,10 @@
       targetDefaults = data.targetDefaults || {};
       activeLightningChain = -1;
       enemyPatrols = data.enemyPatrols || [];
+      advancedEnemies = data.advancedEnemies || [];
       pendingControlTargets = [];
       enemyDrag = null;
+      pathDraft = null;
       spawn = data.spawn || defaultSpawn();
       render();
     }
@@ -1375,6 +1394,7 @@
         ctx.strokeRect(seq.x * TILE + 4.5, seq.y * TILE + 4.5, TILE - 9, TILE - 9);
       }
       for (const emitter of emitters) {
+        if (Array.isArray(emitter.path) && emitter.path.length > 1) drawPathPreview(emitter.path, '#ffb15c', true);
         const cx = emitter.x * TILE + TILE / 2;
         const cy = emitter.y * TILE + TILE / 2;
         ctx.fillStyle = '#ff8a5c';
@@ -1507,7 +1527,31 @@
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
       }
+      ctx.setLineDash([]);
+      for (const enemy of advancedEnemies) drawPathPreview(enemy.path, '#d67dff', true);
+      if (pathDraft) drawPathPreview(pathDraft.path, pathDraft.type === 'advancedEnemy' ? '#d67dff' : '#ffb15c', false);
       ctx.restore();
+    }
+
+    function drawPathPreview(path, color, closed) {
+      if (!Array.isArray(path) || !path.length) return;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      path.forEach((point, index) => {
+        const x = point.x * TILE + TILE / 2;
+        const y = point.y * TILE + TILE / 2;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      if (closed && path.length > 2) ctx.closePath();
+      ctx.stroke();
+      for (const point of path) {
+        ctx.beginPath();
+        ctx.arc(point.x * TILE + TILE / 2, point.y * TILE + TILE / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     function drawControlTargetHighlights() {
@@ -1643,6 +1687,7 @@
     function placeCell(x, y, char, fillRow = false, fillCol = false) {
       const setOne = (cx, cy) => {
         enemyPatrols = enemyPatrols.filter(patrol => patrol.start.x !== cx || patrol.start.y !== cy);
+        advancedEnemies = advancedEnemies.filter(enemy => !(enemy.path || []).some(point => point.x === cx && point.y === cy));
         emitters = emitters.filter(item => item.x !== cx || item.y !== cy);
         sequencers = sequencers.filter(item => item.x !== cx || item.y !== cy);
         controlBindings = controlBindings
@@ -1695,15 +1740,15 @@
     }
 
     function placeBoundControl(x, y, char) {
+      if (char === 'Q') {
+        placeSequencer(x, y);
+        return;
+      }
       pendingControlTargets = pendingControlTargets.filter(target => {
         return controlTargetExists(target);
       });
       if (!pendingControlTargets.length) {
         alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口。');
-        return;
-      }
-      if (char === 'Q') {
-        placeSequencer(x, y);
         return;
       }
       controlBindings = controlBindings.filter(binding => binding.switch.x !== x || binding.switch.y !== y);
@@ -1718,40 +1763,98 @@
     }
 
     function placeSequencer(x, y) {
-      const modeInput = prompt('时序装置触发方式：continuous=持续触发，conditional=条件触发', 'continuous');
-      if (modeInput === null) return;
-      const loop = confirm('是否循环播放？确定=循环，取消=只播放一次。');
-      const interval = clampNumber(prompt('间隔时间（秒，0.2-3）', '1'), 0.2, 3, 1);
-      const duration = clampNumber(prompt('每步持续时间（秒，0.05-3）', String(Math.min(interval, 0.8))), 0.05, 3, Math.min(interval, 0.8));
-      let condition = null;
-      const mode = modeInput.trim().toLowerCase().startsWith('cond') ? 'conditional' : 'continuous';
-      if (mode === 'conditional') {
-        const typeInput = prompt('条件类型：pickup 或 trigger', 'trigger');
-        if (typeInput === null) return;
-        const coord = prompt('条件坐标 x,y。例如 12,8', `${x},${y}`);
-        if (coord === null) return;
-        const [cx, cy] = coord.split(',').map(value => Number(value.trim()));
-        if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
-          alert('条件坐标无效。');
+      openSequencerPanel(x, y);
+    }
+
+    function sequencerTargetOptions() {
+      const options = [];
+      for (let ty = 0; ty < ROWS; ty += 1) {
+        for (let tx = 0; tx < COLS; tx += 1) {
+          const cell = grid[ty]?.[tx];
+          if (cell === 'D') options.push({ label: `门 ${tx},${ty}`, target: { type: 'cell', x: tx, y: ty } });
+          if (cell === '!') options.push({ label: `尖刺 ${tx},${ty}`, target: { type: 'cell', x: tx, y: ty } });
+          if (cell === 'C') options.push({ label: `金币 ${tx},${ty}`, target: { type: 'cell', x: tx, y: ty } });
+        }
+      }
+      surfacePlagues.forEach((plague) => options.push({
+        label: `瘟疫 ${plague.x},${plague.y},面${plague.face}`,
+        target: { type: 'plague', ...plague }
+      }));
+      lightningChains.forEach((chain, chainIndex) => {
+        const pairs = lightningSegmentPairs([chain]);
+        pairs.forEach((_, segmentIndex) => options.push({
+          label: `闪电链 ${chainIndex + 1}-${segmentIndex + 1}`,
+          target: { type: 'lightning', chain: chainIndex, segment: segmentIndex }
+        }));
+      });
+      emitters.forEach((_, index) => options.push({
+        label: `灾厄喷口 ${index + 1}`,
+        target: { type: 'emitter', index }
+      }));
+      return options;
+    }
+
+    function openSequencerPanel(x, y) {
+      const options = sequencerTargetOptions();
+      if (!options.length) {
+        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链或灾厄喷口。');
+        return;
+      }
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:center;justify-content:center;';
+      const panel = document.createElement('div');
+      panel.style.cssText = 'width:680px;max-height:82vh;overflow:auto;background:#202b38;border:1px solid #4b5a6b;border-radius:8px;padding:14px;color:#dfe8ed;font-family:Microsoft YaHei,sans-serif;';
+      panel.innerHTML = `
+        <h2 style="font-size:18px;margin:0 0 10px;color:#f4c95d;">时序装置事件面板</h2>
+        <div style="font-size:12px;color:#9fb0c2;margin-bottom:10px;">每一行是一组事件；同一行多选目标表示同时发生；延迟表示距离上一行开始的间隔秒数。</div>
+        <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><input type="checkbox" id="seq-loop">循环播放</label>
+        <div id="seq-rows"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="action-btn" id="seq-add" style="width:auto;padding:8px 14px;">添加事件行</button>
+          <button class="action-btn" id="seq-save" style="width:auto;padding:8px 14px;">保存</button>
+          <button class="action-btn danger" id="seq-cancel" style="width:auto;padding:8px 14px;">取消</button>
+        </div>
+      `;
+      overlay.appendChild(panel);
+      document.body.appendChild(overlay);
+      const rows = panel.querySelector('#seq-rows');
+      const addRow = (delay = rows.children.length ? 1 : 0, duration = 0.5) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:90px 90px 1fr 54px;gap:8px;align-items:center;margin-bottom:8px;';
+        const optionHtml = options.map((option, index) => `<option value="${index}">${option.label}</option>`).join('');
+        row.innerHTML = `
+          <input class="seq-delay" type="number" min="0" step="0.1" value="${delay}" title="延迟秒数">
+          <input class="seq-duration" type="number" min="0.05" step="0.05" value="${duration}" title="持续秒数">
+          <select class="seq-targets" multiple size="5">${optionHtml}</select>
+          <button class="action-btn danger seq-remove" style="padding:6px;width:auto;">删</button>
+        `;
+        row.querySelector('.seq-remove').addEventListener('click', () => row.remove());
+        rows.appendChild(row);
+      };
+      addRow(0, 0.5);
+      panel.querySelector('#seq-add').addEventListener('click', () => addRow());
+      panel.querySelector('#seq-cancel').addEventListener('click', () => overlay.remove());
+      panel.querySelector('#seq-save').addEventListener('click', () => {
+        const events = [...rows.children].map((row) => {
+          const selected = [...row.querySelector('.seq-targets').selectedOptions].map(option => options[Number(option.value)].target);
+          return {
+            delay: clampNumber(row.querySelector('.seq-delay').value, 0, 60, 0),
+            duration: clampNumber(row.querySelector('.seq-duration').value, 0.05, 60, 0.5),
+            targets: selected.map(target => ({ ...target })),
+          };
+        }).filter(event => event.targets.length);
+        if (!events.length) {
+          alert('至少需要一个事件目标。');
           return;
         }
-        condition = { type: typeInput.trim().toLowerCase().startsWith('pick') ? 'pickup' : 'trigger', x: cx, y: cy };
-      }
-      sequencers = sequencers.filter(item => item.x !== x || item.y !== y);
-      grid[y][x] = 'Q';
-      sequencers.push({
-        x,
-        y,
-        mode,
-        loop,
-        interval,
-        duration,
-        condition,
-        targets: pendingControlTargets.map(target => ({ ...target })),
+        sequencers = sequencers.filter(item => item.x !== x || item.y !== y);
+        grid[y][x] = 'Q';
+        sequencers.push({ x, y, mode: 'events', loop: panel.querySelector('#seq-loop').checked, events });
+        pendingControlTargets = [];
+        overlay.remove();
+        saveRoomData();
+        render();
       });
-      pendingControlTargets = [];
-      saveRoomData();
-      render();
     }
 
     function clampNumber(value, min, max, fallback) {
@@ -1835,6 +1938,73 @@
           .map(binding => ({ ...binding, targets: binding.targets.filter(target => target.type !== 'lightning') }))
           .filter(binding => binding.targets.length);
       }
+      saveRoomData();
+      render();
+    }
+
+    function addAdvancedPathPoint(type, cell) {
+      if (!pathDraft || pathDraft.type !== type) pathDraft = { type, path: [] };
+      const last = pathDraft.path[pathDraft.path.length - 1];
+      if (!last || last.x !== cell.x || last.y !== cell.y) pathDraft.path.push({ x: cell.x, y: cell.y });
+      render();
+    }
+
+    function finishAdvancedPath() {
+      if (!pathDraft || pathDraft.path.length < 2) {
+        alert('至少需要两个路径点。');
+        return;
+      }
+      if (pathDraft.type === 'advancedEnemy') finishAdvancedEnemyPath();
+      else if (pathDraft.type === 'advancedEmitter') finishAdvancedEmitterPath();
+    }
+
+    function finishAdvancedEnemyPath() {
+      const width = clampNumber(prompt('高级敌人宽度（格，0.25-5）', '1'), 0.25, 5, 1);
+      const height = clampNumber(prompt('高级敌人高度（格，0.25-5）', '1'), 0.25, 5, 1);
+      const speed = clampNumber(prompt('高级敌人速度（格/秒，0.1-10）', '1'), 0.1, 10, 1);
+      const path = pathDraft.path.map(point => ({ ...point }));
+      const first = path[0];
+      advancedEnemies = advancedEnemies.filter(enemy => !(enemy.path?.[0]?.x === first.x && enemy.path?.[0]?.y === first.y));
+      advancedEnemies.push({ path, w: width, h: height, speed });
+      grid[first.y][first.x] = 'N';
+      pathDraft = null;
+      saveRoomData();
+      render();
+    }
+
+    function finishAdvancedEmitterPath() {
+      const path = pathDraft.path.map(point => ({ ...point }));
+      const first = path[0];
+      const second = path[1] || { x: first.x + 1, y: first.y };
+      const direction = snapDirection(second.x - first.x, second.y - first.y);
+      const hazard = prompt('灾厄喷口危险物：spike / plague / lightning', 'spike');
+      if (hazard === null) return;
+      const size = clampNumber(prompt('发射物大小（格边长单位，0.25-3）', '0.5'), 0.25, 3, 0.5);
+      const period = clampNumber(prompt('周期时长（秒，0.2-10）', '2'), 0.2, 10, 2);
+      const duty = clampNumber(prompt('发射占比（0.05-1）', '0.35'), 0.05, 1, 0.35);
+      const speed = clampNumber(prompt('发射速度（格/秒，0.5-20）', '6'), 0.5, 20, 6);
+      const moveSpeed = clampNumber(prompt('喷口移动速度（格/秒，0.1-10）', '1'), 0.1, 10, 1);
+      const trackingInput = prompt('追踪时间（秒）。0=直线；追踪范围0.5-3', '0');
+      if (trackingInput === null) return;
+      const trackingTime = clampNumber(trackingInput, 0, 3, 0);
+      const normalizedTrackingTime = trackingTime > 0 ? Math.max(0.5, trackingTime) : 0;
+      emitters = emitters.filter(item => item.x !== first.x || item.y !== first.y);
+      grid[first.y][first.x] = 'Y';
+      emitters.push({
+        x: first.x,
+        y: first.y,
+        dx: direction.x,
+        dy: direction.y,
+        hazard: hazard.trim().toLowerCase().startsWith('plague') ? 'plague' : hazard.trim().toLowerCase().startsWith('light') ? 'lightning' : 'spike',
+        size,
+        period,
+        duty,
+        speed,
+        trackingTime: normalizedTrackingTime,
+        path,
+        moveSpeed,
+      });
+      pathDraft = null;
       saveRoomData();
       render();
     }
@@ -1976,7 +2146,6 @@
       const seen = new Set();
       return plagues.map(normalizeSurface).filter((p) => {
         if (!inGrid(p.x, p.y)) return false;
-        if (!plagueSurfaceHasBody(p)) return false;
         const key = surfaceKey(p);
         if (seen.has(key)) return false;
         seen.add(key);
@@ -1999,7 +2168,11 @@
     function normalizeSequencers(items) {
       return (items || []).map(item => ({
         ...item,
-        targets: (item.targets || []).map(normalizeControlTarget)
+        targets: (item.targets || []).map(normalizeControlTarget),
+        events: (item.events || []).map(event => ({
+          ...event,
+          targets: (event.targets || []).map(normalizeControlTarget)
+        }))
       }));
     }
 
@@ -2211,11 +2384,21 @@
         render();
         return;
       }
+      if (editorMode === 'tile' && currentChar === 'N' && e.button === 0) {
+        addAdvancedPathPoint('advancedEnemy', getCell(e));
+        isPainting = false;
+        return;
+      }
       if (editorMode === 'tile' && currentChar === 'O' && e.button === 0) {
         const cell = getCell(e);
         emitterDrag = { start: cell, current: cell };
         isPainting = false;
         render();
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === 'Y' && e.button === 0) {
+        addAdvancedPathPoint('advancedEmitter', getCell(e));
+        isPainting = false;
         return;
       }
       isPainting = true;
@@ -2284,6 +2467,7 @@
 
     document.getElementById('mode-tile').addEventListener('click', () => setMode('tile'));
     document.getElementById('mode-surface').addEventListener('click', () => setMode('surface'));
+    document.getElementById('btn-finish-path')?.addEventListener('click', finishAdvancedPath);
     document.getElementById('size-normal').addEventListener('click', () => setRoomSize(20));
     document.getElementById('size-boss').addEventListener('click', () => setRoomSize(40));
     document.getElementById('btn-spawn').addEventListener('click', () => setMode('spawn'));
@@ -2346,6 +2530,8 @@
       targetDefaults = {};
       activeLightningChain = -1;
       enemyPatrols = [];
+      advancedEnemies = [];
+      pathDraft = null;
       pendingControlTargets = [];
       saveRoomData();
       render();
@@ -2396,6 +2582,7 @@
               sequencers: roomData.sequencers || [],
               targetDefaults: roomData.targetDefaults || {},
               enemyPatrols: roomData.enemyPatrols || [],
+              advancedEnemies: roomData.advancedEnemies || [],
               spawn: roomData.spawn || defaultSpawn(size)
             };
             localStorage.setItem(`room_${roomData.room}`, JSON.stringify(normalized));
@@ -2411,6 +2598,7 @@
           sequencers = data.sequencers || [];
           activeLightningChain = -1;
           enemyPatrols = data.enemyPatrols || [];
+          advancedEnemies = data.advancedEnemies || [];
           spawn = data.spawn || defaultSpawn();
           if (data.room) currentRoom = data.room;
           saveRoomData();
@@ -2433,6 +2621,8 @@
         targetDefaults = {};
         activeLightningChain = -1;
         enemyPatrols = [];
+        advancedEnemies = [];
+        pathDraft = null;
         pendingControlTargets = [];
         spawn = defaultSpawn();
         saveRoomData();
@@ -2459,6 +2649,7 @@
             sequencers: target.sequencers || [],
             targetDefaults: target.targetDefaults || {},
             enemyPatrols: target.enemyPatrols || [],
+            advancedEnemies: target.advancedEnemies || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -2483,6 +2674,7 @@
         sequencers: roomData.sequencers || [],
         targetDefaults: roomData.targetDefaults || {},
         enemyPatrols: roomData.enemyPatrols || [],
+        advancedEnemies: roomData.advancedEnemies || [],
         playtestLoadout: loadout
       };
       localStorage.setItem('editorPlaytestRoom', JSON.stringify(data));
