@@ -512,6 +512,7 @@ export function parseRoom(data) {
     y: Number(item.y || 0) * TILE,
     w: Math.max(1, Number(item.w || 1)) * TILE,
     h: Math.max(1, Number(item.h || 1)) * TILE,
+    spawnKind: item.spawnKind === "spike" ? "spike" : "platform",
     platformLength: Math.max(1, Number(item.platformLength || item.length || 1)),
     interval: Math.max(0.15, Number(item.interval || 1.2)),
     speed: Math.max(0.1, Number(item.speed || 1.4)) * TILE,

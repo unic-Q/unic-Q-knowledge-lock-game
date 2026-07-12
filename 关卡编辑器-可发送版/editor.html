@@ -246,6 +246,7 @@
       { char: 'U', name: '易碎平台', category: '平台', color: '#9a8065', desc: '双向实体；站上2秒碎裂，8秒复原' },
       { char: 'V', name: '移动平台', category: '平台', color: '#7da7bd', desc: '拖动设置移动距离；可被触发器控制运动' },
       { char: '1', name: '平台生成器', category: '机关', color: '#7da7bd', desc: '拖动框选区域，隐形生成下落平台' },
+      { char: '3', name: '尖刺生成器', category: '机关', color: '#b74a55', desc: '拖动框选区域，隐形生成下落尖刺格' },
       { char: 'L', name: '左平台', category: '平台', color: '#758698', desc: '朝左的半砖平台' },
       { char: 'J', name: '右平台', category: '平台', color: '#758698', desc: '朝右的半砖平台' },
       { char: '.', name: '空地', category: '平台', color: '#2a2e38', desc: '空气/可通行' },
@@ -370,6 +371,7 @@
         item.x < COLS && item.y < ROWS && item.x + item.w <= COLS && item.y + item.h <= ROWS
       ).map(item => ({
         ...item,
+        spawnKind: item.spawnKind === 'spike' ? 'spike' : 'platform',
         platformLength: Math.max(1, Math.min(20, Number(item.platformLength || item.length || 1)))
       }));
       dropBosses = dropBosses.filter(item =>
@@ -1483,14 +1485,24 @@
     function drawEditorMechanisms() {
       ctx.save();
       for (const generator of platformGenerators) {
-        ctx.fillStyle = 'rgba(125,167,189,0.16)';
-        ctx.strokeStyle = '#7da7bd';
+        const isSpike = generator.spawnKind === 'spike';
+        ctx.fillStyle = isSpike ? 'rgba(183,74,85,0.16)' : 'rgba(125,167,189,0.16)';
+        ctx.strokeStyle = isSpike ? '#b74a55' : '#7da7bd';
         ctx.setLineDash([5, 4]);
         ctx.strokeRect(generator.x * TILE + 1.5, generator.y * TILE + 1.5, generator.w * TILE - 3, generator.h * TILE - 3);
         ctx.setLineDash([]);
         const previewLength = Math.max(1, Number(generator.platformLength || 1));
-        ctx.fillStyle = 'rgba(125,167,189,0.32)';
-        ctx.fillRect(generator.x * TILE + 3, generator.y * TILE + 3, Math.min(generator.w, previewLength) * TILE - 6, TILE / 2);
+        ctx.fillStyle = isSpike ? 'rgba(183,74,85,0.35)' : 'rgba(125,167,189,0.32)';
+        if (isSpike) {
+          ctx.beginPath();
+          ctx.moveTo(generator.x * TILE + TILE / 2, generator.y * TILE + 4);
+          ctx.lineTo(generator.x * TILE + TILE - 4, generator.y * TILE + TILE - 4);
+          ctx.lineTo(generator.x * TILE + 4, generator.y * TILE + TILE - 4);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillRect(generator.x * TILE + 3, generator.y * TILE + 3, Math.min(generator.w, previewLength) * TILE - 6, TILE / 2);
+        }
       }
       for (const boss of dropBosses) {
         const zone = dropBossPreviewZone(boss);
@@ -2021,7 +2033,7 @@
         return controlTargetExists(target);
       });
       if (!pendingControlTargets.length) {
-        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口、敌人、移动平台、平台生成器、掉落Boss。');
+        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口、敌人、移动平台、平台生成器、尖刺生成器、掉落Boss。');
         return;
       }
       controlBindings = controlBindings.filter(binding => binding.switch.x !== x || binding.switch.y !== y);
@@ -2069,7 +2081,7 @@
         target: { type: 'movingPlatform', index }
       }));
       platformGenerators.forEach((generator, index) => options.push({
-        label: `平台生成器 ${index + 1} (${generator.x},${generator.y})`,
+        label: `${generator.spawnKind === 'spike' ? '尖刺生成器' : '平台生成器'} ${index + 1} (${generator.x},${generator.y})`,
         target: { type: 'platformGenerator', index }
       }));
       dropBosses.forEach((boss, index) => options.push({
@@ -2094,7 +2106,7 @@
     function openSequencerPanel(x, y) {
       const options = sequencerTargetOptions();
       if (!options.length) {
-        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口、敌人、移动平台、平台生成器或掉落Boss。');
+        alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口、敌人、移动平台、平台生成器、尖刺生成器或掉落Boss。');
         return;
       }
       const overlay = document.createElement('div');
@@ -2420,9 +2432,10 @@
         render();
         return;
       }
-      const interval = clampNumber(prompt('平台生成间隔（秒，0.15-10）', '1.2'), 0.15, 10, 1.2);
-      const speed = clampNumber(prompt('平台下落速度（格/秒，0.1-10）', '1.4'), 0.1, 10, 1.4);
-      const platformLength = clampNumber(prompt('每个平台长度（格，1-20）', '1'), 1, 20, 1);
+      const isSpike = currentChar === '3';
+      const interval = clampNumber(prompt(`${isSpike ? '尖刺' : '平台'}生成间隔（秒，0.15-10）`, '1.2'), 0.15, 10, 1.2);
+      const speed = clampNumber(prompt(`${isSpike ? '尖刺' : '平台'}下落速度（格/秒，0.1-10）`, '1.4'), 0.1, 10, 1.4);
+      const platformLength = isSpike ? 1 : clampNumber(prompt('每个平台长度（格，1-20）', '1'), 1, 20, 1);
       platformGenerators = platformGenerators.filter(item =>
         !(item.x === rect.x && item.y === rect.y && item.w === rect.w && item.h === rect.h)
       );
@@ -2431,6 +2444,7 @@
         y: rect.y,
         w: rect.w,
         h: rect.h,
+        spawnKind: isSpike ? 'spike' : 'platform',
         interval,
         speed,
         platformLength,
@@ -2894,7 +2908,7 @@
         render();
         return;
       }
-      if (editorMode === 'tile' && currentChar === '1' && e.button === 0) {
+      if (editorMode === 'tile' && (currentChar === '1' || currentChar === '3') && e.button === 0) {
         const cell = getCell(e);
         platformGeneratorDrag = { start: cell, current: cell };
         isPainting = false;

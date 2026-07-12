@@ -1261,11 +1261,12 @@ function updatePlatformGenerators(dt) {
     const cells = Math.max(1, Math.floor(generator.w / TILE));
     const platformLength = Math.max(1, Math.floor(generator.platformLength || 1));
     const cell = Math.floor(Math.random() * cells);
+    const kind = generator.spawnKind === "spike" ? "spike" : "platform";
     spawnFallingObject({
-      kind: "platform",
+      kind,
       x: generator.x + cell * TILE,
       y: generator.y,
-      w: platformLength * TILE,
+      w: kind === "platform" ? platformLength * TILE : TILE,
       speed: generator.speed,
       source: "platformGenerator",
     });
@@ -1290,6 +1291,7 @@ function updateDropBosses(dt) {
         y: warning.y,
         speed: boss.fallSpeed,
         source: "dropBoss",
+        maxAge: 15,
       });
     }
     boss.warnings = (boss.warnings || []).filter((warning) => warning.timer > 0);
@@ -1362,7 +1364,7 @@ function randomBossDropKind() {
   return "plague";
 }
 
-function spawnFallingObject({ kind, x, y, w, speed, source }) {
+function spawnFallingObject({ kind, x, y, w, speed, source, maxAge }) {
   const { room } = state;
   room.fallingObjects ||= [];
   const width = Math.max(TILE, w || (kind === "lightning" ? TILE * 2 : TILE));
@@ -1380,6 +1382,8 @@ function spawnFallingObject({ kind, x, y, w, speed, source }) {
     moving: kind === "platform" || kind === "breakable",
     generated: true,
     source,
+    age: 0,
+    maxAge: Number.isFinite(maxAge) ? maxAge : null,
   };
   if (kind === "platform" || kind === "breakable") room.platforms.push(object);
   room.fallingObjects.push(object);
@@ -1396,6 +1400,11 @@ function updateFallingObjects(dt) {
   const { room, player } = state;
   for (const object of room.fallingObjects || []) {
     if (object.dead) continue;
+    object.age = (object.age || 0) + dt;
+    if (object.maxAge !== null && object.age >= object.maxAge) {
+      object.dead = true;
+      continue;
+    }
     const previous = { x: object.x, y: object.y, w: object.w, h: object.h };
     const carrier = findCarrierPlatform(object);
     if (carrier) {
