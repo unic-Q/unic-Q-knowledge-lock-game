@@ -222,15 +222,31 @@ function drawFallingObject(ctx, object) {
 }
 
 function drawDropBoss(ctx, boss) {
+  if (boss.defeated) return;
   ctx.save();
-  ctx.fillStyle = boss.enabled === false ? "#3b3340" : "#49364f";
-  ctx.strokeStyle = "#f4c95d";
+  const paused = (boss.pauseTimer || 0) > 0;
+  const hit = (boss.hitCooldown || 0) > 0;
+  ctx.fillStyle = boss.enabled === false ? "#3b3340" : hit ? "#7b3f5d" : "#49364f";
+  ctx.strokeStyle = paused ? "#9fb0c2" : "#f4c95d";
   ctx.lineWidth = 3;
   ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
   ctx.strokeRect(boss.x + 0.5, boss.y + 0.5, boss.w - 1, boss.h - 1);
   ctx.fillStyle = "#f4c95d";
   ctx.fillRect(boss.x + boss.w * 0.28, boss.y + boss.h * 0.34, boss.w * 0.08, boss.h * 0.08);
   ctx.fillRect(boss.x + boss.w * 0.64, boss.y + boss.h * 0.34, boss.w * 0.08, boss.h * 0.08);
+  const maxHp = Math.max(1, boss.maxHp || 8);
+  const hp = Math.max(0, Math.min(maxHp, boss.hp ?? maxHp));
+  const gap = 3;
+  const barX = boss.x + 12;
+  const barY = boss.y - 12;
+  const barW = Math.max(24, boss.w - 24);
+  const tickW = Math.max(3, (barW - gap * (maxHp - 1)) / maxHp);
+  ctx.fillStyle = "#151820";
+  ctx.fillRect(barX, barY, barW, 7);
+  for (let i = 0; i < maxHp; i += 1) {
+    ctx.fillStyle = i < hp ? "#d34b4b" : "#4a4148";
+    ctx.fillRect(barX + i * (tickW + gap), barY + 1, tickW, 5);
+  }
   ctx.restore();
   for (const warning of boss.warnings || []) {
     const ratio = Math.max(0, Math.min(1, warning.timer / (warning.duration || 1)));

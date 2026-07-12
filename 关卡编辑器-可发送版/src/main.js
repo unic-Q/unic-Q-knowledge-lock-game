@@ -1112,8 +1112,23 @@ function handleBossHazards() {
   const boss = state.room.bosses?.[0];
   if (boss && boss.state !== "waiting" && boss.state !== "intro" && rectsOverlap(state.player, bossBody(boss))) surviveHazard(state.player);
   for (const dropBoss of state.room.dropBosses || []) {
-    if (dropBoss.enabled === false) continue;
-    if (rectsOverlap(state.player, dropBoss)) surviveHazard(state.player);
+    if (dropBoss.enabled === false || dropBoss.defeated) continue;
+    if (rectsOverlap(state.player, dropBoss)) hitDropBoss(dropBoss);
+  }
+}
+
+function hitDropBoss(boss) {
+  if (boss.hitCooldown > 0) return;
+  boss.hp = Math.max(0, (boss.hp || boss.maxHp || 8) - 1);
+  boss.hitCooldown = 0.8;
+  boss.pauseTimer = Math.max(boss.pauseTimer || 0, 2);
+  boss.warnings = [];
+  state.shake = Math.max(state.shake, 7);
+  logEvent("dropBossHit", { hp: boss.hp });
+  if (boss.hp <= 0) {
+    boss.defeated = true;
+    boss.enabled = false;
+    boss.warnings = [];
   }
 }
 
@@ -1276,8 +1291,12 @@ function updatePlatformGenerators(dt) {
 function updateDropBosses(dt) {
   const { room } = state;
   for (const boss of room.dropBosses || []) {
+    if (boss.defeated) continue;
+    boss.hitCooldown = Math.max(0, (boss.hitCooldown || 0) - dt);
+    boss.pauseTimer = Math.max(0, (boss.pauseTimer || 0) - dt);
     if (!boss.enabled) continue;
     updateDropBossMovement(boss, dt);
+    if (boss.pauseTimer > 0) continue;
     boss.timer = (boss.timer || 0) - dt;
     if (boss.timer <= 0) {
       boss.timer += boss.interval;
@@ -1680,7 +1699,7 @@ function handleSwitches(dt = 0) {
     generator.enabled = targetEnabled(generator.targetKey, true);
   }
   for (const boss of room.dropBosses || []) {
-    boss.enabled = targetEnabled(boss.targetKey, true);
+    boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
   }
 }
 
