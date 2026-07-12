@@ -1,0 +1,2528 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>知识锁地图编辑器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Microsoft YaHei, sans-serif;
+      background: #1a1c24;
+      color: #dfe8ed;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    h1 { font-size: 20px; margin-bottom: 12px; color: #f4c95d; }
+    .palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      width: 190px;
+      max-height: 640px;
+      overflow-y: auto;
+      align-content: flex-start;
+      justify-content: flex-start;
+      padding: 0 2px 4px 0;
+    }
+    .palette-btn {
+      width: 50px;
+      height: 32px;
+      border: 2px solid #3b4757;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s;
+      background: #202b38;
+    }
+    .palette-btn:hover { border-color: #f4c95d; }
+    .palette-btn.selected { border-color: #f4c95d; box-shadow: 0 0 10px rgba(244,201,93,0.4); }
+    .palette-btn span { font-size: 8px; color: #8a9bae; margin-top: 0; }
+    .palette-category {
+      flex-basis: 100%;
+      margin-top: 3px;
+      padding: 4px 0 1px;
+      border-top: 1px solid #384756;
+      color: #91a8ba;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .editor-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    #editor-canvas {
+      border: 2px solid #3b4757;
+      border-radius: 4px;
+      cursor: crosshair;
+      background: #202733;
+    }
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 160px;
+    }
+    .sidebar-section {
+      background: #202b38;
+      border: 1px solid #3b4757;
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .sidebar-section h3 {
+      font-size: 12px;
+      color: #f4c95d;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #3b4757;
+      padding-bottom: 4px;
+    }
+    .info-line {
+      font-size: 11px;
+      color: #8a9bae;
+      margin: 3px 0;
+    }
+    .info-line b { color: #dfe8ed; }
+    button.action-btn {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #3b4757;
+      border-radius: 4px;
+      background: #263649;
+      color: #dfe8ed;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      transition: all 0.1s;
+    }
+    button.action-btn:hover { background: #314252; border-color: #f4c95d; }
+    button.action-btn.danger { background: #4a2020; border-color: #8c3030; }
+    button.action-btn.danger:hover { background: #6a2828; }
+    button.action-btn.delete-room {
+      margin: 16px 0 10px;
+    }
+    textarea {
+      width: 100%;
+      height: 80px;
+      background: #151820;
+      border: 1px solid #3b4757;
+      border-radius: 4px;
+      color: #dfe8ed;
+      font-family: monospace;
+      font-size: 10px;
+      resize: vertical;
+      padding: 4px;
+    }
+    .shortcuts {
+      font-size: 10px;
+      color: #8a9bae;
+      line-height: 1.6;
+    }
+    .shortcuts kbd {
+      background: #314252;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .room-input {
+      width: 50px;
+      background: #151820;
+      border: 1px solid #3b4757;
+      border-radius: 4px;
+      color: #dfe8ed;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 4px;
+      text-align: center;
+    }
+    .load-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    select.action-select {
+      width: 100%;
+      background: #151820;
+      border: 1px solid #3b4757;
+      border-radius: 4px;
+      color: #dfe8ed;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 7px;
+      margin-bottom: 6px;
+    }
+    .toggle-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .toggle-row button.active {
+      border-color: #f4c95d;
+      box-shadow: 0 0 8px rgba(244,201,93,0.28);
+    }
+  </style>
+</head>
+<body>
+  <h1>知识锁地图编辑器</h1>
+
+  <div class="editor-row">
+    <div class="palette" id="palette"></div>
+    <canvas id="editor-canvas" width="640" height="640"></canvas>
+
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <h3>房间选择</h3>
+        <div class="load-row">
+          <input type="number" class="room-input" id="room-num" value="1" min="1" max="50">
+          <button class="action-btn" id="btn-load-room">加载房间</button>
+        </div>
+        <button class="action-btn danger delete-room" id="btn-delete-room">删除当前关卡</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>操作</h3>
+        <div class="toggle-row">
+          <button class="action-btn active" id="mode-tile">格子</button>
+          <button class="action-btn" id="mode-surface">表面</button>
+        </div>
+        <div class="toggle-row">
+          <button class="action-btn active" id="size-normal">20x20</button>
+          <button class="action-btn" id="size-boss">40x40</button>
+        </div>
+        <button class="action-btn" id="btn-spawn">设置主角</button>
+        <button class="action-btn" id="btn-reach-overlay">可达区域：关</button>
+        <button class="action-btn" id="btn-world-map">切换到大地图</button>
+        <button class="action-btn" id="btn-clear">清空白地板</button>
+        <button class="action-btn" id="btn-walls">重建边界墙</button>
+        <button class="action-btn" id="btn-export">导出当前关</button>
+        <button class="action-btn" id="btn-export-all">导出全部关</button>
+        <button class="action-btn" id="btn-import">导入数据</button>
+        <button class="action-btn danger" id="btn-reset">重置当前房间</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>试玩</h3>
+        <select class="action-select" id="playtest-loadout">
+          <option value="none">无头盔</option>
+          <option value="red">红</option>
+          <option value="red-green">红+绿</option>
+          <option value="red-green-white">红+绿+白</option>
+          <option value="all">红+绿+白+黑</option>
+        </select>
+        <button class="action-btn" id="btn-playtest-room">试玩本关</button>
+        <button class="action-btn" id="btn-playtest-world">试玩总体</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>导入/导出</h3>
+        <textarea id="data-io" placeholder="粘贴导出数据于此..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TILE = 32;
+    let roomSize = 20;
+    let COLS = 20;
+    let ROWS = 20;
+    let ROOM_FLOOR = 18;
+
+    const BLOCK_TYPES = [
+      { char: '#', name: '实心墙', category: '平台', color: '#607487', desc: '3血量墙壁' },
+      { char: '=', name: '上平台高', category: '平台', color: '#758698', desc: '朝上的高位半砖平台' },
+      { char: '-', name: '上平台低', category: '平台', color: '#758698', desc: '朝上的低位半砖平台' },
+      { char: 'U', name: '易碎平台', category: '平台', color: '#9a8065', desc: '双向实体；站上2秒碎裂，8秒复原' },
+      { char: 'L', name: '左平台', category: '平台', color: '#758698', desc: '朝左的半砖平台' },
+      { char: 'J', name: '右平台', category: '平台', color: '#758698', desc: '朝右的半砖平台' },
+      { char: '.', name: '空地', category: '平台', color: '#2a2e38', desc: '空气/可通行' },
+      { char: 'H', name: '伪装墙', category: '平台', color: '#3a4a56', desc: '看似实心，进入后显露为空气' },
+      { char: 'P', name: '瘟疫', category: '表面', color: '#b8d4a0', desc: '白色扩散瘟疫' },
+      { char: '~', name: '闪电链桩', category: '表面', color: '#8ee6ff', desc: '依次点击格子表面放置端点并连接闪电链' },
+      { char: '!', name: '尖刺', category: '危险', color: '#9c3038', desc: '伤害陷阱，可被开关控制' },
+      { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '黑色敌人' },
+      { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
+      { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
+      { char: '>', name: '右扳机', category: '触发器', color: '#d89b63', desc: '只能从右侧推到左侧时切换' },
+      { char: '<', name: '左扳机', category: '触发器', color: '#d89b63', desc: '只能从左侧推到右侧时切换' },
+      { char: '^', name: '上扳机', category: '触发器', color: '#d89b63', desc: '只能从上侧推到下侧时切换' },
+      { char: 'v', name: '下扳机', category: '触发器', color: '#d89b63', desc: '只能从下侧推到上侧时切换' },
+      { char: 'I', name: '一次隐形触发', category: '触发器', color: '#53697a', desc: '游戏中不可见，触发后永久保持' },
+      { char: 'T', name: '多次隐形触发', category: '触发器', color: '#53697a', desc: '游戏中不可见，离开后复位' },
+      { char: 'F', name: '复活点', category: '触发器', color: '#f4c95d', desc: '死亡后在这里复活' },
+      { char: 'D', name: '门', category: '机关', color: '#6f7884', desc: '全部关联开关满足后打开' },
+      { char: 'A', name: '锚点', category: '机关', color: '#f4c95d', desc: '白骑士钩锁点' },
+      { char: 'Q', name: '时序装置', category: '机关', color: '#caa6ff', desc: '按间隔依次触发已选择目标' },
+      { char: 'O', name: '灾厄喷口', category: '机关', color: '#ff8a5c', desc: '拖动放置方向，周期性发射危险物' },
+      { char: 'G', name: '绿能力', category: '拾取物', color: '#7fa083', desc: '绿色骑士道具' },
+      { char: 'R', name: '红能力', category: '拾取物', color: '#e84d4d', desc: '红色骑士道具' },
+      { char: 'W', name: '白能力', category: '拾取物', color: '#f4f2e6', desc: '白色骑士道具' },
+      { char: 'B', name: '黑能力', category: '拾取物', color: '#252632', desc: '黑色骑士道具' },
+      { char: 'C', name: '金币', category: '拾取物', color: '#f5c542', desc: '拾取后增加金币数量，可被开关控制' },
+    ];
+    const CONTROL_CHARS = new Set(['K', 'S', '>', '<', '^', 'v', 'I', 'T', 'Q']);
+
+    let currentChar = '#';
+    let cursorX = -1, cursorY = -1;
+    let grid = [];
+    let surfacePlagues = [];
+    let controlBindings = [];
+    let lightningChains = [];
+    let emitters = [];
+    let sequencers = [];
+    let targetDefaults = {};
+    let activeLightningChain = -1;
+    let enemyPatrols = [];
+    let emitterDrag = null;
+    let pendingControlTargets = [];
+    let enemyDrag = null;
+    let spawn = { x: 68, y: ROOM_FLOOR * TILE - 28 };
+    let currentRoom = 1;
+    let editorMode = 'tile';
+    let viewMode = 'room';
+    let reachOverlay = false;
+    let isPainting = false;
+    let paintButton = 0;
+    let lastPaintKey = '';
+    let mapRooms = [];
+    let mapLayout = { version: 1, positions: {} };
+    let mapDrag = null;
+    let mapPan = null;
+    let mapCamera = { x: 0, y: 0 };
+    let hoveredMapRoom = null;
+    const MAP_CARD_W = 116;
+    const MAP_CARD_H = 104;
+    const MAP_THUMB = 88;
+    const MAP_SNAP = 18;
+
+    const canvas = document.getElementById('editor-canvas');
+    const ctx = canvas.getContext('2d');
+    const GRAVITY = TILE * 50;
+    const MOVE = TILE * 7;
+    const JUMP = Math.sqrt(2 * GRAVITY * TILE * 3.5);
+    const GREEN_MOVE = 225;
+    const GREEN_JUMP = 585;
+    const GREEN_GRAVITY = 1900;
+    const BLACK_JUMP = 533;
+    const BLACK_GRAVITY = 1900;
+    const RED_DASH_DISTANCE = TILE * 4;
+    const WHITE_HOOK_RANGE = TILE * 6;
+
+    function applyRoomSize(size) {
+      roomSize = Number(size) === 40 ? 40 : 20;
+      COLS = roomSize;
+      ROWS = roomSize;
+      ROOM_FLOOR = roomSize - 2;
+      canvas.width = TILE * COLS;
+      canvas.height = TILE * ROWS;
+      document.getElementById('size-normal')?.classList.toggle('active', roomSize === 20);
+      document.getElementById('size-boss')?.classList.toggle('active', roomSize === 40);
+    }
+
+    function setRoomSize(size) {
+      const nextSize = Number(size) === 40 ? 40 : 20;
+      if (nextSize === roomSize) return;
+      const oldGrid = grid;
+      const oldSize = roomSize;
+      applyRoomSize(nextSize);
+      grid = resizeGridPreserveContent(oldGrid, oldSize, nextSize);
+      spawn.x = Math.max(0, Math.min(COLS * TILE - 24, spawn.x));
+      spawn.y = Math.max(0, Math.min(ROWS * TILE - 28, spawn.y));
+      surfacePlagues = surfacePlagues.filter(item => item.x < COLS && item.y < ROWS);
+      lightningChains = lightningChains
+        .map(chain => ({ ...chain, nodes: (chain.nodes || []).filter(node => node.x < COLS && node.y < ROWS) }))
+        .filter(chain => chain.nodes.length);
+      controlBindings = controlBindings
+        .filter(binding => binding.switch.x < COLS && binding.switch.y < ROWS)
+        .map(binding => ({
+          ...binding,
+          targets: binding.targets.filter(target => target.type === 'lightning' || (target.x < COLS && target.y < ROWS))
+        }))
+        .filter(binding => binding.targets.length);
+      enemyPatrols = enemyPatrols.filter(patrol =>
+        patrol.start.x < COLS && patrol.start.y < ROWS && patrol.end.x < COLS && patrol.end.y < ROWS
+      );
+      saveRoomData();
+      render();
+    }
+
+    function defaultSpawn(size = roomSize) {
+      return { x: 68, y: (size - 2) * TILE - 28 };
+    }
+
+    function createEmptyGrid(size = roomSize) {
+      return Array.from({ length: size }, () => Array(size).fill('.'));
+    }
+
+    function createDefaultRoom(size = roomSize) {
+      const g = createEmptyGrid(size);
+      const floor = size - 2;
+      for (let x = 0; x < size; x += 1) {
+        g[0][x] = '#';
+        g[size - 1][x] = '#';
+        g[floor][x] = '#';
+      }
+      for (let y = 0; y < size; y += 1) {
+        g[y][0] = '#';
+        g[y][size - 1] = '#';
+      }
+      return g;
+    }
+
+    function createDefaultData(size = roomSize) {
+      return {
+        blocks: createDefaultRoom(size),
+        surfacePlagues: [],
+        controlBindings: [],
+        lightningChains: [],
+        emitters: [],
+        sequencers: [],
+        targetDefaults: {},
+        enemyPatrols: [],
+        roomSize: size,
+        spawn: defaultSpawn(size)
+      };
+    }
+
+    function resizeGridPreserveContent(oldGrid, oldSize, nextSize) {
+      const expanded = normalizeGrid(oldGrid, nextSize);
+      if (oldSize !== nextSize && hasAutoBoundary(oldGrid, oldSize)) {
+        clearBoundary(expanded, oldSize);
+        applyBoundary(expanded, nextSize);
+      }
+      return expanded;
+    }
+
+    function hasAutoBoundary(source, size) {
+      const gridToCheck = normalizeGrid(source, size);
+      const floor = size - 2;
+      for (let x = 0; x < size; x += 1) {
+        if (gridToCheck[0]?.[x] !== '#') return false;
+        if (gridToCheck[size - 1]?.[x] !== '#') return false;
+        if (gridToCheck[floor]?.[x] !== '#') return false;
+      }
+      for (let y = 0; y < size; y += 1) {
+        if (gridToCheck[y]?.[0] !== '#') return false;
+        if (gridToCheck[y]?.[size - 1] !== '#') return false;
+      }
+      return true;
+    }
+
+    function clearBoundary(target, size) {
+      const floor = size - 2;
+      for (let x = 0; x < Math.min(size, target.length); x += 1) {
+        if (target[0]) target[0][x] = '.';
+        if (target[size - 1]) target[size - 1][x] = '.';
+        if (target[floor]) target[floor][x] = '.';
+      }
+      for (let y = 0; y < Math.min(size, target.length); y += 1) {
+        if (target[y]) {
+          target[y][0] = '.';
+          if (target[y][size - 1] !== undefined) target[y][size - 1] = '.';
+        }
+      }
+    }
+
+    function applyBoundary(target, size) {
+      const floor = size - 2;
+      for (let x = 0; x < size; x += 1) {
+        target[0][x] = '#';
+        target[size - 1][x] = '#';
+        target[floor][x] = '#';
+      }
+      for (let y = 0; y < size; y += 1) {
+        target[y][0] = '#';
+        target[y][size - 1] = '#';
+      }
+    }
+
+    function roomSizeFromData(data) {
+      if (Number(data?.roomSize) === 40) return 40;
+      const blocks = data?.blocks || data;
+      if (!Array.isArray(blocks)) return 20;
+      if (blocks.length > 20) return 40;
+      return blocks.some(row => String(Array.isArray(row) ? row.join('') : row || '').length > 20) ? 40 : 20;
+    }
+
+    function normalizeGrid(blocks, size = roomSize) {
+      const source = Array.isArray(blocks) ? blocks : [];
+      return Array.from({ length: size }, (_, y) => {
+        const row = Array.isArray(source[y]) ? source[y].join('') : (source[y] || '');
+        return Array.from({ length: size }, (_, x) => row[x] || '.');
+      });
+    }
+
+    function normalizeLightningChains(data) {
+      if (Array.isArray(data?.lightningChains)) {
+        return data.lightningChains
+          .map(chain => ({
+            nodes: Array.isArray(chain?.nodes)
+              ? chain.nodes.filter(node => Number.isInteger(node?.x) && Number.isInteger(node?.y)).map(node => ({ ...node }))
+              : [],
+            closed: Boolean(chain?.closed)
+          }))
+          .filter(chain => chain.nodes.length);
+      }
+      const legacyNodes = Array.isArray(data?.lightningNodes) ? data.lightningNodes : [];
+      const nodes = legacyNodes
+        .filter(node => Number.isInteger(node?.x) && Number.isInteger(node?.y))
+        .map(node => ({ ...node }));
+      return nodes.length ? [{ nodes, closed: false }] : [];
+    }
+
+    function allLightningNodes(chains = lightningChains) {
+      return chains.flatMap(chain => chain.nodes || []);
+    }
+
+    function lightningSegmentPairs(chains = lightningChains) {
+      const pairs = [];
+      for (const chain of chains) {
+        const nodes = chain.nodes || [];
+        for (let i = 1; i < nodes.length; i += 1) pairs.push([nodes[i - 1], nodes[i]]);
+        if (chain.closed && nodes.length > 2) pairs.push([nodes[nodes.length - 1], nodes[0]]);
+      }
+      return pairs;
+    }
+
+    function getRoomData() {
+      const stored = localStorage.getItem(`room_${currentRoom}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            const size = roomSizeFromData(parsed);
+            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], spawn: defaultSpawn(size) };
+          }
+          const size = roomSizeFromData(parsed);
+          return {
+            roomSize: size,
+            blocks: normalizeGrid(parsed.blocks || createDefaultRoom(size), size),
+            surfacePlagues: dedupeSurfacePlagues(parsed.surfacePlagues || []),
+            controlBindings: parsed.controlBindings || [],
+            lightningChains: normalizeLightningChains(parsed),
+            emitters: parsed.emitters || [],
+            sequencers: parsed.sequencers || [],
+            targetDefaults: parsed.targetDefaults || {},
+            enemyPatrols: parsed.enemyPatrols || [],
+            spawn: parsed.spawn || defaultSpawn(size)
+          };
+        } catch {
+          return createDefaultData();
+        }
+      }
+      return createDefaultData();
+    }
+
+    function saveRoomData() {
+      surfacePlagues = dedupeSurfacePlagues(surfacePlagues);
+      controlBindings = normalizeControlBindings(controlBindings);
+      sequencers = normalizeSequencers(sequencers);
+      targetDefaults = normalizeTargetDefaults(targetDefaults);
+      const data = {
+        blocks: grid.map(row => row.join('')),
+        roomSize,
+        surfacePlagues,
+        controlBindings,
+        lightningChains,
+        emitters,
+        sequencers,
+        targetDefaults,
+        lightningNodes: allLightningNodes(),
+        enemyPatrols,
+        spawn
+      };
+      localStorage.setItem(`room_${currentRoom}`, JSON.stringify(data));
+    }
+
+    function currentRoomExportData(room = currentRoom) {
+      surfacePlagues = dedupeSurfacePlagues(surfacePlagues);
+      controlBindings = normalizeControlBindings(controlBindings);
+      sequencers = normalizeSequencers(sequencers);
+      targetDefaults = normalizeTargetDefaults(targetDefaults);
+      return {
+        room,
+        blocks: grid.map(row => row.join('')),
+        roomSize,
+        surfacePlagues,
+        controlBindings,
+        lightningChains,
+        emitters,
+        sequencers,
+        targetDefaults,
+        lightningNodes: allLightningNodes(),
+        enemyPatrols,
+        spawn
+      };
+    }
+
+    function isDefaultRoomData(data) {
+      const size = roomSizeFromData(data);
+      const defaults = createDefaultRoom(size).map(row => row.join(''));
+      const blocks = normalizeGrid(data?.blocks, size).map(row => row.join(''));
+      return blocks.every((row, index) => row === defaults[index]) &&
+        !(data?.surfacePlagues || []).length &&
+        !(data?.controlBindings || []).length &&
+        !normalizeLightningChains(data).length &&
+        !(data?.emitters || []).length &&
+        !(data?.sequencers || []).length &&
+        !(data?.enemyPatrols || []).length;
+    }
+
+    async function exportedRoomData(roomId) {
+      try {
+        const response = await fetch('/api/exported-levels', { cache: 'no-store' });
+        const result = await response.json();
+        if (!result.ok || !Array.isArray(result.rooms)) return null;
+        const found = result.rooms.find(room => Number(room.room ?? room.id) === Number(roomId));
+        if (!found) return null;
+        const size = roomSizeFromData(found);
+        return {
+          room: Number(found.room ?? found.id),
+          roomSize: size,
+          blocks: normalizeGrid(found.blocks, size).map(row => row.join('')),
+          surfacePlagues: dedupeSurfacePlagues(found.surfacePlagues || []),
+          controlBindings: found.controlBindings || [],
+          lightningChains: normalizeLightningChains(found),
+          emitters: found.emitters || [],
+          sequencers: found.sequencers || [],
+          targetDefaults: found.targetDefaults || {},
+          enemyPatrols: found.enemyPatrols || [],
+          spawn: found.spawn || defaultSpawn(size)
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    async function syncChangedExportedLevels() {
+      try {
+        const response = await fetch('/api/exported-levels', { cache: 'no-store' });
+        const result = await response.json();
+        if (!result.ok || !Array.isArray(result.rooms)) return;
+        const fingerprint = JSON.stringify({ rooms: result.rooms, map: result.map || null });
+        if (localStorage.getItem('exportedLevelsFingerprint') === fingerprint) return;
+
+        for (const roomData of result.rooms) {
+          const roomId = Number(roomData.room ?? roomData.id);
+          if (!Number.isFinite(roomId) || !Array.isArray(roomData.blocks)) continue;
+          const size = roomSizeFromData(roomData);
+          localStorage.setItem(`room_${roomId}`, JSON.stringify({
+            roomSize: size,
+            blocks: normalizeGrid(roomData.blocks, size).map(row => row.join('')),
+            surfacePlagues: dedupeSurfacePlagues(roomData.surfacePlagues || []),
+            controlBindings: roomData.controlBindings || [],
+            lightningChains: normalizeLightningChains(roomData),
+            emitters: roomData.emitters || [],
+            sequencers: roomData.sequencers || [],
+            targetDefaults: roomData.targetDefaults || {},
+            enemyPatrols: roomData.enemyPatrols || [],
+            spawn: roomData.spawn || defaultSpawn(size)
+          }));
+        }
+        if (result.map) localStorage.setItem('worldMapLayout', JSON.stringify(result.map));
+        localStorage.setItem('exportedLevelsFingerprint', fingerprint);
+      } catch {
+        // Direct file opening has no export API; retain browser-local rooms.
+      }
+    }
+
+    function localRoomExportData(roomId) {
+      const stored = localStorage.getItem(`room_${roomId}`);
+      if (!stored) return null;
+      try {
+        return storedRoomExportData(Number(roomId), stored);
+      } catch {
+        return null;
+      }
+    }
+
+    async function currentPlayableRoomData() {
+      if (viewMode === 'world') {
+        const target = hoveredMapRoom || mapRooms.find(room => Number(room.room) === Number(currentRoom));
+        if (target) {
+          const local = localRoomExportData(target.room);
+          if (local) return local;
+          return {
+            room: Number(target.room),
+            roomSize: roomSizeFromData(target),
+            blocks: normalizeGrid(target.blocks, roomSizeFromData(target)).map(row => row.join('')),
+            surfacePlagues: dedupeSurfacePlagues(target.surfacePlagues || []),
+            controlBindings: target.controlBindings || [],
+            lightningChains: normalizeLightningChains(target),
+            emitters: target.emitters || [],
+            sequencers: target.sequencers || [],
+            targetDefaults: target.targetDefaults || {},
+            enemyPatrols: target.enemyPatrols || [],
+            spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
+          };
+        }
+      }
+
+      saveRoomData();
+      return currentRoomExportData();
+    }
+
+    function storedRoomExportData(room, stored) {
+      const parsed = JSON.parse(stored);
+      const size = roomSizeFromData(parsed);
+      const data = Array.isArray(parsed)
+        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], spawn: defaultSpawn(size) }
+        : {
+          roomSize: size,
+          blocks: normalizeGrid(parsed.blocks, size),
+          surfacePlagues: dedupeSurfacePlagues(parsed.surfacePlagues || []),
+          controlBindings: parsed.controlBindings || [],
+          lightningChains: normalizeLightningChains(parsed),
+          emitters: parsed.emitters || [],
+          sequencers: parsed.sequencers || [],
+          targetDefaults: parsed.targetDefaults || {},
+          enemyPatrols: parsed.enemyPatrols || [],
+          spawn: parsed.spawn || defaultSpawn(size)
+        };
+      return {
+        room,
+        roomSize: data.roomSize,
+        blocks: data.blocks.map(row => row.join('')),
+        surfacePlagues: data.surfacePlagues,
+        controlBindings: data.controlBindings,
+        lightningChains: data.lightningChains || normalizeLightningChains(data),
+        lightningNodes: allLightningNodes(data.lightningChains || normalizeLightningChains(data)),
+        emitters: data.emitters || [],
+        sequencers: data.sequencers || [],
+        targetDefaults: data.targetDefaults || {},
+        enemyPatrols: data.enemyPatrols,
+        spawn: data.spawn
+      };
+    }
+
+    function buildAllLevelsExport() {
+      saveRoomData();
+      const rooms = [];
+      for (let room = 1; room <= 50; room += 1) {
+        const stored = localStorage.getItem(`room_${room}`);
+        if (!stored) continue;
+        try {
+          rooms.push(storedRoomExportData(room, stored));
+        } catch {
+          // Ignore broken local drafts.
+        }
+      }
+      return { version: 1, cols: 20, rows: 20, rooms };
+    }
+
+    function loadLocalMapLayout() {
+      try {
+        return JSON.parse(localStorage.getItem('worldMapLayout') || '{"version":1,"positions":{}}');
+      } catch {
+        return { version: 1, positions: {} };
+      }
+    }
+
+    function defaultMapPosition(index) {
+      const col = index % 5;
+      const row = Math.floor(index / 5);
+      return { x: 18 + col * 124, y: 32 + row * 118 };
+    }
+
+    function applyMapPositions(rooms, savedLayout) {
+      const positions = savedLayout?.positions || {};
+      return rooms.map((room, index) => {
+        const key = String(room.room);
+        const pos = positions[key] || defaultMapPosition(index);
+        return { ...room, mapX: pos.x, mapY: pos.y };
+      });
+    }
+
+    async function loadWorldMap() {
+      const localLayout = loadLocalMapLayout();
+      const localRooms = buildAllLevelsExport().rooms;
+      if (localRooms.length) {
+        mapLayout = localLayout;
+        mapRooms = applyMapPositions(localRooms, mapLayout);
+        return;
+      }
+      try {
+        const response = await fetch('/api/exported-levels');
+        const result = await response.json();
+        if (result.ok && Array.isArray(result.rooms) && result.rooms.length) {
+          mapLayout = result.map || localLayout;
+          mapRooms = applyMapPositions(result.rooms, mapLayout);
+          localStorage.setItem('worldMapLayout', JSON.stringify(mapLayout));
+          return;
+        }
+      } catch {
+        // File export API is only available when served through game-server.mjs.
+      }
+      const fallback = buildAllLevelsExport();
+      mapLayout = localLayout;
+      mapRooms = applyMapPositions(fallback.rooms, mapLayout);
+    }
+
+    function collectMapLayout() {
+      const positions = {};
+      for (const room of mapRooms) {
+        positions[String(room.room)] = { x: Math.round(room.mapX), y: Math.round(room.mapY) };
+      }
+      return { version: 1, positions };
+    }
+
+    function roomLinksFromMap() {
+      const links = {};
+      const tolerance = 4;
+      for (const room of mapRooms) {
+        const key = String(room.room);
+        links[key] = {};
+        const roomW = mapRoomW(room);
+        const roomH = mapRoomH(room);
+        for (const other of mapRooms) {
+          if (other === room) continue;
+          const otherW = mapRoomW(other);
+          const otherH = mapRoomH(other);
+          const yOverlap = intervalsOverlap(room.mapY, room.mapY + roomH, other.mapY, other.mapY + otherH, tolerance);
+          const xOverlap = intervalsOverlap(room.mapX, room.mapX + roomW, other.mapX, other.mapX + otherW, tolerance);
+          const link = { id: Number(other.room), offsetX: room.mapX - other.mapX, offsetY: room.mapY - other.mapY };
+          if (yOverlap && Math.abs(other.mapX - (room.mapX + roomW)) <= tolerance) links[key].r = link;
+          if (yOverlap && Math.abs(other.mapX + otherW - room.mapX) <= tolerance) links[key].l = link;
+          if (xOverlap && Math.abs(other.mapY - (room.mapY + roomH)) <= tolerance) links[key].d = link;
+          if (xOverlap && Math.abs(other.mapY + otherH - room.mapY) <= tolerance) links[key].u = link;
+        }
+      }
+      return links;
+    }
+
+    function roomScale(room) {
+      return roomSizeFromData(room) === 40 ? 2 : 1;
+    }
+
+    function mapRoomW(room) {
+      return MAP_CARD_W * roomScale(room);
+    }
+
+    function mapRoomH(room) {
+      return MAP_CARD_H * roomScale(room);
+    }
+
+    function intervalsOverlap(a0, a1, b0, b1, tolerance = 0) {
+      const overlap = Math.min(a1, b1) - Math.max(a0, b0);
+      return overlap >= Math.max(16, tolerance);
+    }
+
+    async function saveWorldMapLayout() {
+      mapLayout = collectMapLayout();
+      localStorage.setItem('worldMapLayout', JSON.stringify(mapLayout));
+      try {
+        await fetch('/api/save-map-layout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(mapLayout)
+        });
+      } catch {
+        // Local storage is enough when the editor is opened without the server.
+      }
+    }
+
+    function snapMapRoom(room, rawX, rawY) {
+      let best = { x: rawX, y: rawY, dist: MAP_SNAP + 1 };
+      for (const other of mapRooms) {
+        if (other === room) continue;
+        const candidates = [
+          { x: other.mapX + mapRoomW(other), y: other.mapY },
+          { x: other.mapX - mapRoomW(room), y: other.mapY },
+          { x: other.mapX, y: other.mapY + mapRoomH(other) },
+          { x: other.mapX, y: other.mapY - mapRoomH(room) },
+        ];
+        for (const candidate of candidates) {
+          const dist = Math.hypot(rawX - candidate.x, rawY - candidate.y);
+          if (dist < best.dist) best = { ...candidate, dist };
+        }
+      }
+      return { x: best.x, y: best.y };
+    }
+
+    function buildWorldPlaytestData() {
+      const all = buildAllLevelsExport();
+      const roomById = new Map(all.rooms.map(room => [Number(room.room), room]));
+      const startRoomId = Number(currentRoom);
+      const rooms = mapRooms.map(room => {
+        const data = roomById.get(Number(room.room)) || room;
+        const isStartRoom = Number(room.room) === startRoomId;
+        return {
+          id: Number(room.room),
+          roomSize: roomSizeFromData(data),
+          name: `总体试玩 ${String(room.room).padStart(2, '0')}`,
+          spawn: isStartRoom && data.spawn ? [data.spawn.x, data.spawn.y] : null,
+          worldStart: isStartRoom,
+          flag: null,
+          helmet: null,
+          links: {},
+          blocks: data.blocks,
+          surfacePlagues: data.surfacePlagues || [],
+          controlBindings: data.controlBindings || [],
+          lightningChains: data.lightningChains || normalizeLightningChains(data),
+          lightningNodes: allLightningNodes(data.lightningChains || normalizeLightningChains(data)),
+          emitters: data.emitters || [],
+          sequencers: data.sequencers || [],
+          targetDefaults: data.targetDefaults || {},
+          enemyPatrols: data.enemyPatrols || [],
+        };
+      });
+      const linksByRoom = roomLinksFromMap();
+      for (const room of rooms) {
+        room.links = linksByRoom[String(room.id)] || {};
+      }
+      rooms.sort((a, b) => a.id - b.id);
+      return {
+        loadout: document.getElementById('playtest-loadout').value,
+        startRoom: startRoomId,
+        rooms,
+      };
+    }
+
+    async function writeLevelFiles(payload, button) {
+      const old = button?.textContent || '';
+      try {
+        const response = await fetch('/api/export-levels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || '导出失败');
+        const exported = await fetch('/api/exported-levels', { cache: 'no-store' }).then(item => item.json());
+        if (exported.ok) {
+          localStorage.setItem('exportedLevelsFingerprint', JSON.stringify({
+            rooms: exported.rooms,
+            map: exported.map || null
+          }));
+        }
+        if (button) {
+          button.textContent = `已写入${result.count}关`;
+          setTimeout(() => button.textContent = old, 1200);
+        }
+        return true;
+      } catch (err) {
+        if (button) {
+          button.textContent = '已放入文本框';
+          setTimeout(() => button.textContent = old, 1200);
+        }
+        return false;
+      }
+    }
+
+    function loadRoom(num) {
+      currentRoom = Math.max(1, Math.min(50, num));
+      document.getElementById('room-num').value = currentRoom;
+      const data = getRoomData();
+      applyRoomSize(data.roomSize || roomSizeFromData(data));
+      grid = normalizeGrid(data.blocks, roomSize);
+      surfacePlagues = dedupeSurfacePlagues(data.surfacePlagues || []);
+      controlBindings = data.controlBindings || [];
+      lightningChains = data.lightningChains || normalizeLightningChains(data);
+      emitters = data.emitters || [];
+      sequencers = data.sequencers || [];
+      targetDefaults = data.targetDefaults || {};
+      activeLightningChain = -1;
+      enemyPatrols = data.enemyPatrols || [];
+      pendingControlTargets = [];
+      enemyDrag = null;
+      spawn = data.spawn || defaultSpawn();
+      render();
+    }
+
+    function render() {
+      if (viewMode === 'world') {
+        renderWorldMap();
+        return;
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#2a2e38';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let y = 0; y < ROWS; y += 1) {
+        for (let x = 0; x < COLS; x += 1) {
+          const char = grid[y][x];
+          const px = x * TILE;
+          const py = y * TILE;
+
+          if (char === '.') {
+            ctx.fillStyle = '#2a2e38';
+            ctx.fillRect(px, py, TILE, TILE);
+          } else {
+            const block = BLOCK_TYPES.find(b => b.char === char);
+            const color = block ? block.color : '#ff00ff';
+            ctx.fillStyle = color;
+            ctx.fillRect(px, py, TILE, TILE);
+
+            if (char === '#') {
+              ctx.strokeStyle = '#314252';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+            } else if ('=-ULJ'.includes(char)) {
+              ctx.fillStyle = '#2a2e38';
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.fillStyle = char === 'U' ? '#9a8065' : '#758698';
+              if (char === '=') ctx.fillRect(px, py, TILE, TILE / 2);
+              if (char === '-') ctx.fillRect(px, py + TILE / 2, TILE, TILE / 2);
+              if (char === 'U') ctx.fillRect(px, py + TILE / 2, TILE, TILE / 2);
+              if (char === 'L') ctx.fillRect(px, py, TILE / 2, TILE);
+              if (char === 'J') ctx.fillRect(px + TILE / 2, py, TILE / 2, TILE);
+              ctx.strokeStyle = '#40505f';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+              if (char === 'U') {
+                ctx.strokeStyle = '#4f4035';
+                ctx.beginPath();
+                ctx.moveTo(px + 7, py + 18);
+                ctx.lineTo(px + 15, py + 25);
+                ctx.lineTo(px + 23, py + 19);
+                ctx.stroke();
+              }
+            } else if (char === '!') {
+              ctx.fillStyle = '#9c3038';
+              ctx.beginPath();
+              ctx.moveTo(px, py + TILE);
+              ctx.lineTo(px + TILE / 2, py + 4);
+              ctx.lineTo(px + TILE, py + TILE);
+              ctx.closePath();
+              ctx.fill();
+            } else if (char === '~') {
+              ctx.strokeStyle = '#8ee6ff';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              for (let i = 0; i < 4; i += 1) {
+                const sx = px + 4 + i * 7;
+                const sy = py + (i % 2 ? 24 : 8);
+                if (i === 0) ctx.moveTo(sx, sy);
+                else ctx.lineTo(sx, sy);
+              }
+              ctx.stroke();
+            } else if (char === 'M') {
+              ctx.fillStyle = '#3f273f';
+              ctx.fillRect(px + 4, py + 7, TILE - 8, TILE - 7);
+              ctx.fillStyle = '#f4c95d';
+              ctx.fillRect(px + 8, py + 10, 4, 4);
+              ctx.fillRect(px + TILE - 12, py + 10, 4, 4);
+            } else if (char === 'K') {
+              ctx.fillStyle = '#d6c08a';
+              ctx.fillRect(px + 4, py + TILE * 0.68, TILE - 8, TILE * 0.32);
+              ctx.strokeStyle = '#314252';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(px + 4.5, py + TILE * 0.68 + 0.5, TILE - 9, TILE * 0.32 - 1);
+            } else if (char === 'S') {
+              ctx.fillStyle = '#d89b63';
+              ctx.fillRect(px + 4, py + TILE * 0.62, TILE - 8, TILE * 0.38);
+              ctx.strokeStyle = '#f4c95d';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(px + 4.5, py + TILE * 0.62 + 0.5, TILE - 9, TILE * 0.38 - 1);
+            } else if ('<>^v'.includes(char)) {
+              ctx.fillStyle = '#d89b63';
+              ctx.fillRect(px + 5, py + TILE - 10, TILE - 10, 5);
+              ctx.strokeStyle = '#f4c95d';
+              ctx.lineWidth = 3;
+              const side = char === '<' ? [-1, 0] : char === '^' ? [0, -1] : char === 'v' ? [0, 1] : [1, 0];
+              const cx = px + TILE / 2;
+              const cy = py + TILE / 2;
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(cx + side[0] * 10, cy + side[1] * 10);
+              ctx.stroke();
+            } else if (char === 'F') {
+              ctx.strokeStyle = '#f0dca2';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              ctx.moveTo(px + 8, py + 28);
+              ctx.lineTo(px + 8, py + 5);
+              ctx.stroke();
+              ctx.fillStyle = '#f4c95d';
+              ctx.beginPath();
+              ctx.moveTo(px + 9, py + 6);
+              ctx.lineTo(px + 26, py + 11);
+              ctx.lineTo(px + 9, py + 16);
+              ctx.closePath();
+              ctx.fill();
+            } else if (char === 'D') {
+              ctx.strokeStyle = '#f4c95d';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(px + 1.5, py + 1.5, TILE - 3, TILE - 3);
+            } else if ('IT'.includes(char)) {
+              ctx.fillStyle = '#2a2e38';
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.strokeStyle = 'rgba(145,168,186,0.7)';
+              ctx.setLineDash([4, 4]);
+              ctx.strokeRect(px + 5.5, py + 5.5, TILE - 11, TILE - 11);
+              ctx.setLineDash([]);
+            } else if ('GRWB'.includes(char)) {
+              const colors = { G: '#7fa083', R: '#e84d4d', W: '#f4f2e6', B: '#252632' };
+              ctx.fillStyle = colors[char] || '#f4c95d';
+              ctx.beginPath();
+              ctx.arc(px + TILE / 2, py + TILE / 2, 11, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#f4c95d';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            } else if (char === 'A') {
+              ctx.fillStyle = '#f4c95d';
+              ctx.beginPath();
+              ctx.arc(px + TILE / 2, py + TILE / 2, 6, 0, Math.PI * 2);
+              ctx.fill();
+            } else if (char === 'P') {
+              ctx.fillStyle = 'rgba(235,247,225,0.76)';
+              ctx.beginPath();
+              ctx.ellipse(px + TILE / 2, py + TILE / 2, 12, 6, 0, 0, Math.PI * 2);
+              ctx.fill();
+            } else if (char === 'C') {
+              ctx.fillStyle = '#2a2e38';
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.fillStyle = '#f5c542';
+              ctx.strokeStyle = '#a96f16';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(px + TILE / 2, py + TILE / 2, 9, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+            }
+          }
+
+          ctx.strokeStyle = 'rgba(59,71,87,0.3)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+        }
+      }
+
+      drawEditorLightning();
+      drawEnemyPatrols();
+      drawEditorMechanisms();
+      if (CONTROL_CHARS.has(currentChar)) drawControlTargetHighlights();
+      for (const plague of surfacePlagues) drawSurfacePlague(plague);
+      if (reachOverlay) drawReachOverlay();
+      drawSpawn();
+
+      if (cursorX >= 0 && cursorY >= 0) {
+        ctx.strokeStyle = '#f4c95d';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cursorX * TILE + 1, cursorY * TILE + 1, TILE - 2, TILE - 2);
+      }
+    }
+
+    function renderWorldMap() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#18212c';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = 'rgba(59,71,87,0.45)';
+      ctx.lineWidth = 1;
+      const gridOffsetX = ((mapCamera.x % 32) + 32) % 32;
+      const gridOffsetY = ((mapCamera.y % 32) + 32) % 32;
+      for (let x = gridOffsetX - 32; x <= canvas.width; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = gridOffsetY - 32; y <= canvas.height; y += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(canvas.width, y + 0.5);
+        ctx.stroke();
+      }
+
+      if (!mapRooms.length) {
+        ctx.fillStyle = '#8a9bae';
+        ctx.font = '14px Microsoft YaHei, sans-serif';
+        ctx.fillText('还没有可显示的关卡。先编辑或保存至少一关。', 38, 58);
+        return;
+      }
+
+      ctx.save();
+      ctx.translate(mapCamera.x, mapCamera.y);
+      for (const room of mapRooms) drawMapRoom(room);
+      if (hoveredMapRoom) drawMapTooltip(hoveredMapRoom);
+      ctx.restore();
+    }
+
+    function drawReachOverlay() {
+      const cells = reachableCellsFromSpawn();
+      ctx.save();
+      ctx.fillStyle = 'rgba(244, 201, 93, 0.16)';
+      ctx.strokeStyle = 'rgba(244, 201, 93, 0.24)';
+      ctx.lineWidth = 1;
+      for (const cell of cells) {
+        ctx.fillRect(cell.x * TILE + 1, cell.y * TILE + 1, TILE - 2, TILE - 2);
+        ctx.strokeRect(cell.x * TILE + 0.5, cell.y * TILE + 0.5, TILE - 1, TILE - 1);
+      }
+      ctx.restore();
+    }
+
+    function reachableCellsFromSpawn() {
+      const loadout = document.getElementById('playtest-loadout').value;
+      const forms = loadoutForms(loadout);
+      const sx = spawn.x + 12;
+      const sy = spawn.y + 14;
+      const cells = [];
+      for (let y = 0; y < ROWS; y += 1) {
+        for (let x = 0; x < COLS; x += 1) {
+          if (isEditorSolidCell(x, y)) continue;
+          const tx = x * TILE + TILE / 2;
+          const ty = y * TILE + TILE / 2;
+          if (forms.some(form => canReachCell(form, sx, sy, tx, ty))) cells.push({ x, y });
+        }
+      }
+      return cells;
+    }
+
+    function loadoutForms(loadout) {
+      if (loadout === 'none') return ['none'];
+      if (loadout === 'red') return ['red'];
+      if (loadout === 'red-green') return ['red', 'green'];
+      if (loadout === 'red-green-white') return ['red', 'green', 'white'];
+      return ['red', 'green', 'white', 'black'];
+    }
+
+    function isEditorSolidCell(x, y) {
+      const char = grid[y]?.[x];
+      return char === '#' || char === 'D' || char === 'U';
+    }
+
+    function canReachCell(form, sx, sy, tx, ty) {
+      const dx = Math.abs(tx - sx);
+      const dy = ty - sy;
+      if (form === 'red') return dx + Math.abs(dy) <= RED_DASH_DISTANCE + TILE * 0.75;
+      if (form === 'white') return Math.hypot(dx, dy) <= WHITE_HOOK_RANGE + TILE * 0.5;
+      if (form === 'green') return projectileReach(dx, dy, GREEN_MOVE, GREEN_JUMP, GREEN_GRAVITY);
+      if (form === 'black') return projectileReach(dx, dy, MOVE * 0.25, BLACK_JUMP, BLACK_GRAVITY);
+      return projectileReach(dx, dy, MOVE, JUMP, GRAVITY, true);
+    }
+
+    function projectileReach(dx, dy, speed, jump, gravity, doubleJump = false) {
+      const maxHeight = (jump * jump) / (2 * gravity);
+      const verticalLimit = maxHeight * (doubleJump ? 1.8 : 1) + TILE * 0.5;
+      if (dy < -verticalLimit) return false;
+      const effectiveJump = doubleJump ? jump * 1.32 : jump;
+      const disc = effectiveJump * effectiveJump + 2 * gravity * dy;
+      if (disc < 0) return false;
+      const t = (effectiveJump + Math.sqrt(disc)) / gravity;
+      return dx <= speed * t + TILE * 0.75;
+    }
+
+    function drawMapRoom(room) {
+      const x = room.mapX;
+      const y = room.mapY;
+      const w = mapRoomW(room);
+      const h = mapRoomH(room);
+      const selected = Number(room.room) === Number(currentRoom);
+      ctx.save();
+      ctx.fillStyle = selected ? '#2c3948' : '#202b38';
+      ctx.strokeStyle = selected ? '#f4c95d' : '#3b4757';
+      ctx.lineWidth = selected ? 2 : 1;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+
+      drawRoomThumbnail(room, x + 14, y + 8, Math.max(24, w - 28), Math.max(24, h - 16));
+      ctx.restore();
+    }
+
+    function drawMapTooltip(room) {
+      const label = `Room${String(room.room).padStart(2, '0')}`;
+      const x = room.mapX + 8;
+      const y = room.mapY - 8;
+      ctx.save();
+      ctx.font = '13px Consolas, Microsoft YaHei, monospace';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(21,24,32,0.92)';
+      ctx.strokeText(label, x, y);
+      ctx.fillStyle = '#f4c95d';
+      ctx.fillText(label, x, y);
+      ctx.restore();
+    }
+
+    function drawRoomThumbnail(room, x, y, w, h) {
+      const size = roomSizeFromData(room);
+      const cellW = w / size;
+      const cellH = h / size;
+      ctx.fillStyle = '#2a2e38';
+      ctx.fillRect(x, y, w, h);
+      const blocks = normalizeGrid(room.blocks, size);
+      for (let yy = 0; yy < size; yy += 1) {
+        for (let xx = 0; xx < size; xx += 1) {
+          const char = blocks[yy][xx];
+          if (char === '.') continue;
+          const block = BLOCK_TYPES.find(b => b.char === char);
+          ctx.fillStyle = block ? block.color : '#ff00ff';
+          ctx.fillRect(x + xx * cellW, y + yy * cellH, Math.ceil(cellW), Math.ceil(cellH));
+        }
+      }
+      const thumbnailLightningChains = room.lightningChains || normalizeLightningChains(room);
+      if (lightningSegmentPairs(thumbnailLightningChains).length) {
+        ctx.strokeStyle = '#8ee6ff';
+        ctx.lineWidth = 1.5;
+        for (const [from, to] of lightningSegmentPairs(thumbnailLightningChains)) {
+          ctx.beginPath();
+          [from, to].forEach((node, index) => {
+            const fx = node.face === 1 ? 1 : node.face === 3 ? 0 : 0.5;
+            const fy = node.face === 2 ? 1 : node.face === 0 ? 0 : 0.5;
+            const px = x + (node.x + fx) * cellW;
+            const py = y + (node.y + fy) * cellH;
+            if (index === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.stroke();
+        }
+      }
+      for (const plague of room.surfacePlagues || []) {
+        const px = x + plague.x * cellW;
+        const py = y + plague.y * cellH;
+        const insetX = plagueEdgeInset(cellW);
+        const insetY = plagueEdgeInset(cellH);
+        ctx.strokeStyle = 'rgba(235,247,225,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (plague.face === 0) {
+          ctx.moveTo(px + insetX, py);
+          ctx.lineTo(px + cellW - insetX, py);
+        } else if (plague.face === 1) {
+          ctx.moveTo(px + cellW, py + insetY);
+          ctx.lineTo(px + cellW, py + cellH - insetY);
+        } else if (plague.face === 2) {
+          ctx.moveTo(px + insetX, py + cellH);
+          ctx.lineTo(px + cellW - insetX, py + cellH);
+        } else {
+          ctx.moveTo(px, py + insetY);
+          ctx.lineTo(px, py + cellH - insetY);
+        }
+        ctx.stroke();
+      }
+      if (room.spawn) {
+        ctx.fillStyle = '#f7f1d3';
+        ctx.fillRect(x + (room.spawn.x / TILE) * cellW - 1, y + (room.spawn.y / TILE) * cellH - 1, 3, 3);
+      }
+    }
+
+    function faceVectors(face) {
+      return [
+        { nx: 0, ny: -1, tx: 1, ty: 0 },
+        { nx: 1, ny: 0, tx: 0, ty: 1 },
+        { nx: 0, ny: 1, tx: -1, ty: 0 },
+        { nx: -1, ny: 0, tx: 0, ty: -1 }
+      ][face];
+    }
+
+    function plagueEdgeInset(length = TILE) {
+      return length * 0.05;
+    }
+
+    function facePoint(x, y, face, t = TILE / 2) {
+      const px = x * TILE;
+      const py = y * TILE;
+      if (face === 0) return { x: px + t, y: py };
+      if (face === 1) return { x: px + TILE, y: py + t };
+      if (face === 2) return { x: px + TILE - t, y: py + TILE };
+      return { x: px, y: py + TILE - t };
+    }
+
+    function drawSurfacePlague(plague) {
+      const vector = faceVectors(plague.face);
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+      const inset = plagueEdgeInset(TILE);
+      for (let t = inset; t <= TILE - inset; t += 9) {
+        const p = facePoint(plague.x, plague.y, plague.face, t);
+        ctx.translate(p.x - vector.nx * 3, p.y - vector.ny * 3);
+        ctx.rotate(Math.atan2(vector.ty, vector.tx));
+        ctx.fillStyle = 'rgba(235,247,225,0.78)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 8, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(147,176,132,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(-2, 0, 3.5, 1.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 0.88;
+      }
+      ctx.restore();
+    }
+
+    function drawSpawn() {
+      ctx.save();
+      ctx.fillStyle = '#f7f1d3';
+      ctx.fillRect(spawn.x, spawn.y, 24, 28);
+      ctx.fillStyle = '#151820';
+      ctx.fillRect(spawn.x + 7, spawn.y + 9, 4, 5);
+      ctx.fillRect(spawn.x + 16, spawn.y + 9, 4, 5);
+      ctx.strokeStyle = '#f4c95d';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(spawn.x + 0.5, spawn.y + 0.5, 23, 27);
+      ctx.restore();
+    }
+
+    function drawEditorMechanisms() {
+      ctx.save();
+      for (const seq of sequencers) {
+        ctx.fillStyle = 'rgba(202,166,255,0.26)';
+        ctx.strokeStyle = '#caa6ff';
+        ctx.lineWidth = 2;
+        ctx.fillRect(seq.x * TILE + 4, seq.y * TILE + 4, TILE - 8, TILE - 8);
+        ctx.strokeRect(seq.x * TILE + 4.5, seq.y * TILE + 4.5, TILE - 9, TILE - 9);
+      }
+      for (const emitter of emitters) {
+        const cx = emitter.x * TILE + TILE / 2;
+        const cy = emitter.y * TILE + TILE / 2;
+        ctx.fillStyle = '#ff8a5c';
+        ctx.strokeStyle = '#3a1e18';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = '#ffcf9a';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + (emitter.dx || 1) * 18, cy + (emitter.dy || 0) * 18);
+        ctx.stroke();
+      }
+      if (emitterDrag) {
+        const cx = emitterDrag.start.x * TILE + TILE / 2;
+        const cy = emitterDrag.start.y * TILE + TILE / 2;
+        const ex = emitterDrag.current.x * TILE + TILE / 2;
+        const ey = emitterDrag.current.y * TILE + TILE / 2;
+        ctx.strokeStyle = '#ff8a5c';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function controlTargetKey(target) {
+      if (target.type === 'lightning') return `lightning:${target.chain},${target.segment}`;
+      if (target.type === 'plague') {
+        const surface = normalizeSurface(target);
+        return `plague:${surface.x},${surface.y},${surface.face}`;
+      }
+      if (target.type === 'emitter') return `emitter:${target.index}`;
+      return `cell:${target.x},${target.y}`;
+    }
+
+    function controllableTargetAt(x, y) {
+      if (['D', '!', 'C'].includes(grid[y]?.[x])) return { type: 'cell', x, y };
+      const plague = surfacePlagues.find(p => p.x === x && p.y === y);
+      if (plague) return { type: 'plague', x: plague.x, y: plague.y, face: plague.face };
+      const emitterIndex = emitters.findIndex(item => Math.floor(item.x) === x && Math.floor(item.y) === y);
+      if (emitterIndex >= 0) return { type: 'emitter', index: emitterIndex };
+      return null;
+    }
+
+    function lightningTargetNearPoint(point, radius = 10) {
+      let best = null;
+      let bestDistance = radius;
+      lightningChains.forEach((chain, chainIndex) => {
+        const nodes = chain.nodes || [];
+        for (let i = 1; i < nodes.length; i += 1) {
+          const a = lightningNodePoint(nodes[i - 1]);
+          const b = lightningNodePoint(nodes[i]);
+          const distance = pointSegmentDistance(point.x, point.y, a, b);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = { type: 'lightning', chain: chainIndex, segment: i - 1 };
+          }
+        }
+        if (chain.closed && nodes.length > 2) {
+          const a = lightningNodePoint(nodes[nodes.length - 1]);
+          const b = lightningNodePoint(nodes[0]);
+          const distance = pointSegmentDistance(point.x, point.y, a, b);
+          if (distance < bestDistance) best = { type: 'lightning', chain: chainIndex, segment: nodes.length - 1 };
+        }
+      });
+      return best;
+    }
+
+    function pointSegmentDistance(px, py, a, b) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(px - (a.x + dx * t), py - (a.y + dy * t));
+    }
+
+    function lightningNodePoint(node, scale = TILE) {
+      if (node.face === 0) return { x: (node.x + 0.5) * scale, y: node.y * scale };
+      if (node.face === 1) return { x: (node.x + 1) * scale, y: (node.y + 0.5) * scale };
+      if (node.face === 2) return { x: (node.x + 0.5) * scale, y: (node.y + 1) * scale };
+      if (node.face === 3) return { x: node.x * scale, y: (node.y + 0.5) * scale };
+      return { x: (node.x + 0.5) * scale, y: (node.y + 0.5) * scale };
+    }
+
+    function drawEditorLightning() {
+      if (!lightningChains.length) return;
+      ctx.save();
+      ctx.strokeStyle = '#35f28a';
+      ctx.fillStyle = '#d8f7ff';
+      ctx.lineWidth = 2;
+      for (const [from, to] of lightningSegmentPairs()) {
+        const a = lightningNodePoint(from);
+        const b = lightningNodePoint(to);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      for (const node of allLightningNodes()) {
+        const point = lightningNodePoint(node);
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawEnemyPatrols() {
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(232,77,77,0.8)';
+      ctx.fillStyle = 'rgba(232,77,77,0.1)';
+      const patrols = enemyDrag
+        ? [...enemyPatrols, { start: enemyDrag.start, end: enemyDrag.current }]
+        : enemyPatrols;
+      for (const patrol of patrols) {
+        const minX = Math.min(patrol.start.x, patrol.end.x);
+        const minY = Math.min(patrol.start.y, patrol.end.y);
+        const maxX = Math.max(patrol.start.x, patrol.end.x);
+        const maxY = Math.max(patrol.start.y, patrol.end.y);
+        const x = minX * TILE + 2;
+        const y = minY * TILE + 2;
+        const w = (maxX - minX + 1) * TILE - 4;
+        const h = (maxY - minY + 1) * TILE - 4;
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+      }
+      ctx.restore();
+    }
+
+    function drawControlTargetHighlights() {
+      const pulse = 0.45 + Math.sin(Date.now() / 130) * 0.22;
+      const selected = new Set(pendingControlTargets.map(controlTargetKey));
+      ctx.save();
+      for (let y = 0; y < ROWS; y += 1) {
+        for (let x = 0; x < COLS; x += 1) {
+          const target = controllableTargetAt(x, y);
+          if (!target || target.type === 'lightning') continue;
+          const chosen = selected.has(controlTargetKey(target));
+          ctx.fillStyle = chosen ? 'rgba(244,201,93,0.42)' : `rgba(142,230,255,${pulse})`;
+          ctx.fillRect(x * TILE + 3, y * TILE + 3, TILE - 6, TILE - 6);
+        }
+      }
+      if (lightningChains.length) {
+        lightningChains.forEach((chain, chainIndex) => {
+          const pairs = lightningSegmentPairs([chain]);
+          pairs.forEach(([from, to], segmentIndex) => {
+          const chosen = selected.has(`lightning:${chainIndex},${segmentIndex}`);
+          ctx.strokeStyle = chosen ? '#f4c95d' : `rgba(142,230,255,${Math.min(1, pulse + 0.25)})`;
+          ctx.lineWidth = chosen ? 6 : 4;
+          const a = lightningNodePoint(from);
+          const b = lightningNodePoint(to);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          });
+        });
+      }
+      for (const plague of surfacePlagues) {
+        const chosen = selected.has(controlTargetKey({ type: 'plague', ...plague }));
+        if (!chosen) continue;
+        const p = facePoint(plague.x, plague.y, plague.face, TILE / 2);
+        ctx.fillStyle = 'rgba(244,201,93,0.58)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      emitters.forEach((emitter, index) => {
+        const chosen = selected.has(`emitter:${index}`);
+        ctx.strokeStyle = chosen ? '#f4c95d' : `rgba(142,230,255,${pulse})`;
+        ctx.lineWidth = chosen ? 3 : 2;
+        ctx.strokeRect(emitter.x * TILE + 5, emitter.y * TILE + 5, TILE - 10, TILE - 10);
+      });
+      ctx.restore();
+    }
+
+    function buildPalette() {
+      const container = document.getElementById('palette');
+      let category = '';
+      BLOCK_TYPES.forEach((block) => {
+        if (block.category !== category) {
+          category = block.category;
+          const heading = document.createElement('div');
+          heading.className = 'palette-category';
+          heading.textContent = category;
+          container.appendChild(heading);
+        }
+        const btn = document.createElement('button');
+        btn.className = 'palette-btn' + (block.char === currentChar ? ' selected' : '');
+        btn.dataset.char = block.char;
+        const char = document.createElement('span');
+        char.style.color = block.color;
+        char.textContent = block.char;
+        const name = document.createElement('span');
+        name.textContent = block.name;
+        btn.append(char, name);
+        btn.title = `${block.desc}`;
+        btn.addEventListener('click', () => selectBlock(block.char));
+        container.appendChild(btn);
+      });
+    }
+
+    function selectBlock(char) {
+      if (currentChar === '~' && char !== '~') activeLightningChain = -1;
+      currentChar = char;
+      pendingControlTargets = [];
+      document.querySelectorAll('.palette-btn').forEach((btn) => {
+        btn.classList.toggle('selected', btn.dataset.char === char);
+      });
+      if (grid.length === ROWS) render();
+    }
+
+    function getCell(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((e.clientX - rect.left) / TILE);
+      const y = Math.floor((e.clientY - rect.top) / TILE);
+      return { x: Math.max(0, Math.min(COLS - 1, x)), y: Math.max(0, Math.min(ROWS - 1, y)) };
+    }
+
+    function getSurface(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const x = Math.max(0, Math.min(COLS - 1, Math.floor(mx / TILE)));
+      const y = Math.max(0, Math.min(ROWS - 1, Math.floor(my / TILE)));
+      const lx = mx - x * TILE;
+      const ly = my - y * TILE;
+      const distances = [ly, TILE - lx, TILE - ly, lx];
+      const face = distances.indexOf(Math.min(...distances));
+      return { x, y, face };
+    }
+
+    function cellHasBody(x, y) {
+      const char = grid[y]?.[x];
+      return char && char !== '.';
+    }
+
+    function inGrid(x, y) {
+      return x >= 0 && x < COLS && y >= 0 && y < ROWS;
+    }
+
+    function surfaceTargetFromPointer(e) {
+      const surface = getSurface(e);
+      if (cellHasBody(surface.x, surface.y)) return surface;
+      const normal = faceVectors(surface.face);
+      const nx = surface.x - normal.nx;
+      const ny = surface.y - normal.ny;
+      if (cellHasBody(nx, ny)) {
+        return { x: nx, y: ny, face: (surface.face + 2) % 4 };
+      }
+      const candidates = [
+        { x: surface.x, y: surface.y - 1, face: 2 },
+        { x: surface.x + 1, y: surface.y, face: 3 },
+        { x: surface.x, y: surface.y + 1, face: 0 },
+        { x: surface.x - 1, y: surface.y, face: 1 },
+      ];
+      return candidates.find(c => cellHasBody(c.x, c.y)) || surface;
+    }
+
+    function placeCell(x, y, char, fillRow = false, fillCol = false) {
+      const setOne = (cx, cy) => {
+        enemyPatrols = enemyPatrols.filter(patrol => patrol.start.x !== cx || patrol.start.y !== cy);
+        emitters = emitters.filter(item => item.x !== cx || item.y !== cy);
+        sequencers = sequencers.filter(item => item.x !== cx || item.y !== cy);
+        controlBindings = controlBindings
+          .filter(binding => binding.switch.x !== cx || binding.switch.y !== cy)
+          .map(binding => ({
+            ...binding,
+            targets: binding.targets.filter(target => target.type !== 'cell' || target.x !== cx || target.y !== cy)
+          }))
+          .filter(binding => binding.targets.length);
+        grid[cy][cx] = char;
+      };
+      if (fillRow) {
+        for (let cx = 0; cx < COLS; cx += 1) setOne(cx, y);
+      } else if (fillCol) {
+        for (let cy = 0; cy < ROWS; cy += 1) setOne(x, cy);
+      } else {
+        setOne(x, y);
+      }
+      saveRoomData();
+      render();
+    }
+
+    function togglePendingControlTarget(target) {
+      if (target.type === 'plague') target = { type: 'plague', ...normalizeSurface(target) };
+      const key = controlTargetKey(target);
+      const index = pendingControlTargets.findIndex(item => controlTargetKey(item) === key);
+      if (index >= 0) pendingControlTargets.splice(index, 1);
+      else {
+        if (['plague', 'lightning', 'emitter'].includes(target.type) && targetDefaults[key] === undefined) {
+          targetDefaults[key] = confirm('这个目标默认是否存在/启用？确定=默认存在，取消=默认隐藏。触发后会切换状态。');
+        }
+        pendingControlTargets.push(target);
+      }
+      render();
+    }
+
+    function controlTargetExists(target) {
+      if (target.type === 'lightning') {
+        const chain = lightningChains[target.chain];
+        const nodes = chain?.nodes || [];
+        const maxSegments = nodes.length > 1 ? nodes.length - 1 + (chain.closed && nodes.length > 2 ? 1 : 0) : 0;
+        return target.segment >= 0 && target.segment < maxSegments;
+      }
+      if (target.type === 'plague') {
+        const key = controlTargetKey(target);
+        return surfacePlagues.some(p => controlTargetKey({ type: 'plague', ...p }) === key);
+      }
+      if (target.type === 'emitter') return Boolean(emitters[target.index]);
+      return ['D', '!', 'C'].includes(grid[target.y]?.[target.x]);
+    }
+
+    function placeBoundControl(x, y, char) {
+      pendingControlTargets = pendingControlTargets.filter(target => {
+        return controlTargetExists(target);
+      });
+      if (!pendingControlTargets.length) {
+        alert('请先点击至少一个控制目标，再放置开关。可控制：门、尖刺、金币、闪电链、瘟疫、灾厄喷口。');
+        return;
+      }
+      if (char === 'Q') {
+        placeSequencer(x, y);
+        return;
+      }
+      controlBindings = controlBindings.filter(binding => binding.switch.x !== x || binding.switch.y !== y);
+      grid[y][x] = char;
+      controlBindings.push({
+        switch: { x, y },
+        targets: pendingControlTargets.map(target => ({ ...target }))
+      });
+      pendingControlTargets = [];
+      saveRoomData();
+      render();
+    }
+
+    function placeSequencer(x, y) {
+      const modeInput = prompt('时序装置触发方式：continuous=持续触发，conditional=条件触发', 'continuous');
+      if (modeInput === null) return;
+      const loop = confirm('是否循环播放？确定=循环，取消=只播放一次。');
+      const interval = clampNumber(prompt('间隔时间（秒，0.2-3）', '1'), 0.2, 3, 1);
+      const duration = clampNumber(prompt('每步持续时间（秒，0.05-3）', String(Math.min(interval, 0.8))), 0.05, 3, Math.min(interval, 0.8));
+      let condition = null;
+      const mode = modeInput.trim().toLowerCase().startsWith('cond') ? 'conditional' : 'continuous';
+      if (mode === 'conditional') {
+        const typeInput = prompt('条件类型：pickup 或 trigger', 'trigger');
+        if (typeInput === null) return;
+        const coord = prompt('条件坐标 x,y。例如 12,8', `${x},${y}`);
+        if (coord === null) return;
+        const [cx, cy] = coord.split(',').map(value => Number(value.trim()));
+        if (!Number.isInteger(cx) || !Number.isInteger(cy)) {
+          alert('条件坐标无效。');
+          return;
+        }
+        condition = { type: typeInput.trim().toLowerCase().startsWith('pick') ? 'pickup' : 'trigger', x: cx, y: cy };
+      }
+      sequencers = sequencers.filter(item => item.x !== x || item.y !== y);
+      grid[y][x] = 'Q';
+      sequencers.push({
+        x,
+        y,
+        mode,
+        loop,
+        interval,
+        duration,
+        condition,
+        targets: pendingControlTargets.map(target => ({ ...target })),
+      });
+      pendingControlTargets = [];
+      saveRoomData();
+      render();
+    }
+
+    function clampNumber(value, min, max, fallback) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return fallback;
+      return Math.max(min, Math.min(max, number));
+    }
+
+    function editLightningNode(surface, erase) {
+      const { x, y, face } = surface;
+      if (erase) {
+        removeLightningNode(surface);
+        if (!allLightningNodes().length) {
+          controlBindings = controlBindings
+            .map(binding => ({ ...binding, targets: binding.targets.filter(target => target.type !== 'lightning') }))
+            .filter(binding => binding.targets.length);
+        }
+      } else {
+        let chain = lightningChains[activeLightningChain];
+        if (!chain || chain.closed) {
+          chain = { nodes: [], closed: false };
+          lightningChains.push(chain);
+          activeLightningChain = lightningChains.length - 1;
+        }
+        const index = chain.nodes.findIndex(node =>
+          node.x === x && node.y === y && (node.face === face || !Number.isInteger(node.face))
+        );
+        if (index === 0 && chain.nodes.length > 2) {
+          chain.closed = true;
+          activeLightningChain = -1;
+        } else if (index < 0) {
+          chain.nodes.push({ x, y, face });
+        }
+      }
+      saveRoomData();
+      render();
+    }
+
+    function removeLightningNode(surface) {
+      for (let chainIndex = lightningChains.length - 1; chainIndex >= 0; chainIndex -= 1) {
+        const chain = lightningChains[chainIndex];
+        const index = chain.nodes.findIndex(node =>
+          node.x === surface.x && node.y === surface.y &&
+          (node.face === surface.face || !Number.isInteger(node.face))
+        );
+        if (index < 0) continue;
+        chain.nodes.splice(index, 1);
+        if (chain.nodes.length < 3) chain.closed = false;
+        if (!chain.nodes.length) lightningChains.splice(chainIndex, 1);
+        if (activeLightningChain === chainIndex) activeLightningChain = -1;
+        return true;
+      }
+      return false;
+    }
+
+    function removeLightningNodeNearPointer(e) {
+      const rect = canvas.getBoundingClientRect();
+      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      let nearest = -1;
+      let nearestDistance = 15;
+      let nearestChain = -1;
+      lightningChains.forEach((chain, chainIndex) => {
+        (chain.nodes || []).forEach((node, index) => {
+          const position = lightningNodePoint(node);
+          const distance = Math.hypot(point.x - position.x, point.y - position.y);
+          if (distance < nearestDistance) {
+            nearest = index;
+            nearestChain = chainIndex;
+            nearestDistance = distance;
+          }
+        });
+      });
+      if (nearest < 0 || nearestChain < 0) return;
+      const chain = lightningChains[nearestChain];
+      chain.nodes.splice(nearest, 1);
+      if (chain.nodes.length < 3) chain.closed = false;
+      if (!chain.nodes.length) lightningChains.splice(nearestChain, 1);
+      if (activeLightningChain === nearestChain) activeLightningChain = -1;
+      if (!allLightningNodes().length) {
+        controlBindings = controlBindings
+          .map(binding => ({ ...binding, targets: binding.targets.filter(target => target.type !== 'lightning') }))
+          .filter(binding => binding.targets.length);
+      }
+      saveRoomData();
+      render();
+    }
+
+    function finishEnemyPatrol() {
+      if (!enemyDrag) return;
+      const patrol = {
+        start: { ...enemyDrag.start },
+        end: { ...enemyDrag.current }
+      };
+      enemyPatrols = enemyPatrols.filter(item =>
+        item.start.x !== patrol.start.x || item.start.y !== patrol.start.y
+      );
+      enemyPatrols.push(patrol);
+      grid[patrol.start.y][patrol.start.x] = 'M';
+      enemyDrag = null;
+      saveRoomData();
+      render();
+    }
+
+    function finishEmitterPlacement() {
+      if (!emitterDrag) return;
+      const start = emitterDrag.start;
+      const current = emitterDrag.current;
+      const rawDx = current.x - start.x;
+      const rawDy = current.y - start.y;
+      const direction = snapDirection(rawDx, rawDy);
+      const hazard = prompt('灾厄喷口危险物：spike / plague / lightning', 'spike');
+      if (hazard === null) {
+        emitterDrag = null;
+        render();
+        return;
+      }
+      const size = clampNumber(prompt('发射物大小（格边长单位，0.25-3）', '0.5'), 0.25, 3, 0.5);
+      const period = clampNumber(prompt('周期时长（秒，0.2-10）', '2'), 0.2, 10, 2);
+      const duty = clampNumber(prompt('发射占比（0.05-1）', '0.35'), 0.05, 1, 0.35);
+      const speed = clampNumber(prompt('速度（格/秒，0.5-20）', '6'), 0.5, 20, 6);
+      const trackingInput = prompt('追踪时间（秒）。0=直线；追踪范围0.5-3', '0');
+      if (trackingInput === null) {
+        emitterDrag = null;
+        render();
+        return;
+      }
+      const trackingTime = clampNumber(trackingInput, 0, 3, 0);
+      const normalizedTrackingTime = trackingTime > 0 ? Math.max(0.5, trackingTime) : 0;
+      emitters = emitters.filter(item => item.x !== start.x || item.y !== start.y);
+      grid[start.y][start.x] = 'O';
+      emitters.push({
+        x: start.x,
+        y: start.y,
+        dx: direction.x,
+        dy: direction.y,
+        hazard: hazard.trim().toLowerCase().startsWith('plague') ? 'plague' : hazard.trim().toLowerCase().startsWith('light') ? 'lightning' : 'spike',
+        size,
+        period,
+        duty,
+        speed,
+        trackingTime: normalizedTrackingTime,
+      });
+      emitterDrag = null;
+      saveRoomData();
+      render();
+    }
+
+    function snapDirection(dx, dy) {
+      if (dx === 0 && dy === 0) return { x: 1, y: 0 };
+      const angle = Math.atan2(dy, dx);
+      const step = Math.round(angle / (Math.PI / 4));
+      const snapped = step * Math.PI / 4;
+      return {
+        x: Math.round(Math.cos(snapped)),
+        y: Math.round(Math.sin(snapped)),
+      };
+    }
+
+    function surfaceKey(surface) {
+      const normalized = normalizeSurface(surface);
+      return `${normalized.x},${normalized.y},${normalized.face}`;
+    }
+
+    function equivalentSurfaceKeys(surface) {
+      const rawX = Number(surface.x);
+      const rawY = Number(surface.y);
+      const rawFace = ((Number(surface.face) % 4) + 4) % 4;
+      const normalized = normalizeSurface(surface);
+      const keys = new Set([`${normalized.x},${normalized.y},${normalized.face}`]);
+      keys.add(`${rawX},${rawY},${rawFace}`);
+      if (rawFace === 0) keys.add(`${rawX},${rawY - 1},2`);
+      if (rawFace === 1) keys.add(`${rawX + 1},${rawY},3`);
+      if (rawFace === 2) keys.add(`${rawX},${rawY + 1},0`);
+      if (rawFace === 3) keys.add(`${rawX - 1},${rawY},1`);
+      return keys;
+    }
+
+    function normalizeSurface(surface) {
+      let x = Number(surface.x);
+      let y = Number(surface.y);
+      let face = ((Number(surface.face) % 4) + 4) % 4;
+      if (face === 2) {
+        y += 1;
+        face = 0;
+      } else if (face === 3) {
+        x -= 1;
+        face = 1;
+      }
+      return {
+        x,
+        y,
+        face
+      };
+    }
+
+    function paintSurface(surface, erase = false) {
+      const aliases = equivalentSurfaceKeys(surface);
+      if (!cellHasBody(surface.x, surface.y)) return;
+      surface = normalizeSurface(surface);
+      if (!inGrid(surface.x, surface.y)) return;
+      const before = surfacePlagues.length;
+      surfacePlagues = surfacePlagues.filter(p => !aliases.has(surfaceKey(p)));
+      if (!erase && before === surfacePlagues.length) surfacePlagues.push(surface);
+      surfacePlagues = dedupeSurfacePlagues(surfacePlagues);
+      saveRoomData();
+      render();
+    }
+
+    function plagueSurfaceHasBody(surface) {
+      const normalized = normalizeSurface(surface);
+      if (!inGrid(normalized.x, normalized.y)) return false;
+      if (normalized.face === 0) {
+        return cellHasBody(normalized.x, normalized.y) || cellHasBody(normalized.x, normalized.y - 1);
+      }
+      if (normalized.face === 1) {
+        return cellHasBody(normalized.x, normalized.y) || cellHasBody(normalized.x + 1, normalized.y);
+      }
+      return cellHasBody(normalized.x, normalized.y);
+    }
+
+    function dedupeSurfacePlagues(plagues) {
+      const seen = new Set();
+      return plagues.map(normalizeSurface).filter((p) => {
+        if (!inGrid(p.x, p.y)) return false;
+        if (!plagueSurfaceHasBody(p)) return false;
+        const key = surfaceKey(p);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function normalizeControlTarget(target) {
+      if (target?.type !== 'plague') return target;
+      return { type: 'plague', ...normalizeSurface(target) };
+    }
+
+    function normalizeControlBindings(bindings) {
+      return (bindings || []).map(binding => ({
+        ...binding,
+        targets: (binding.targets || []).map(normalizeControlTarget)
+      }));
+    }
+
+    function normalizeSequencers(items) {
+      return (items || []).map(item => ({
+        ...item,
+        targets: (item.targets || []).map(normalizeControlTarget)
+      }));
+    }
+
+    function normalizeTargetDefaults(defaults) {
+      const normalized = {};
+      for (const [key, value] of Object.entries(defaults || {})) {
+        const parts = key.split(':');
+        if (parts[0] !== 'plague') {
+          normalized[key] = value;
+          continue;
+        }
+        const [x, y, face] = (parts[1] || '').split(',').map(Number);
+        const surface = normalizeSurface({ x, y, face });
+        normalized[`plague:${surface.x},${surface.y},${surface.face}`] = value;
+      }
+      return normalized;
+    }
+
+    function setMode(mode) {
+      editorMode = mode;
+      document.getElementById('mode-tile').classList.toggle('active', mode === 'tile');
+      document.getElementById('mode-surface').classList.toggle('active', mode === 'surface');
+      document.getElementById('btn-spawn').classList.toggle('active', mode === 'spawn');
+    }
+
+    async function toggleWorldMap() {
+      if (viewMode === 'room') {
+        saveRoomData();
+        viewMode = 'world';
+        isPainting = false;
+        mapDrag = null;
+        mapPan = null;
+        canvas.style.cursor = 'grab';
+        document.getElementById('btn-world-map').textContent = '切换到单关';
+        document.getElementById('btn-world-map').classList.add('active');
+        await loadWorldMap();
+        render();
+      } else {
+        viewMode = 'room';
+        canvas.style.cursor = 'crosshair';
+        document.getElementById('btn-world-map').textContent = '切换到单关';
+        document.getElementById('btn-world-map').classList.remove('active');
+        render();
+      }
+    }
+
+    function canvasPoint(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
+    function mapRoomAt(point) {
+      const worldPoint = {
+        x: point.x - mapCamera.x,
+        y: point.y - mapCamera.y
+      };
+      for (let i = mapRooms.length - 1; i >= 0; i -= 1) {
+        const room = mapRooms[i];
+        if (
+          worldPoint.x >= room.mapX && worldPoint.x <= room.mapX + mapRoomW(room) &&
+          worldPoint.y >= room.mapY && worldPoint.y <= room.mapY + mapRoomH(room)
+        ) return room;
+      }
+      return null;
+    }
+
+    function paintAt(e) {
+      if (editorMode === 'spawn') {
+        const { x, y } = getCell(e);
+        spawn = { x: x * TILE + 4, y: y * TILE + 4 };
+        saveRoomData();
+        render();
+        return;
+      }
+      if (editorMode === 'surface') {
+        const erase = paintButton === 2 || currentChar === '.';
+        if (currentChar !== 'P' && !erase) return;
+        const surface = surfaceTargetFromPointer(e);
+        const key = surfaceKey(surface) + `:${paintButton}`;
+        if (key === lastPaintKey) return;
+        lastPaintKey = key;
+        paintSurface(surface, erase);
+        return;
+      }
+      const { x, y } = getCell(e);
+      const char = paintButton === 2 ? '.' : currentChar;
+      const key = `${x},${y},${char}`;
+      if (key === lastPaintKey) return;
+      lastPaintKey = key;
+      if (currentChar === '~') {
+        if (paintButton === 2) {
+          removeLightningNodeNearPointer(e);
+          isPainting = false;
+          return;
+        }
+        const surface = surfaceTargetFromPointer(e);
+        if (!cellHasBody(surface.x, surface.y)) {
+          alert('闪电链桩只能放在格子表面。');
+          isPainting = false;
+          return;
+        }
+        editLightningNode(surface, false);
+        isPainting = false;
+        return;
+      }
+      if (CONTROL_CHARS.has(currentChar) && paintButton !== 2) {
+        const surface = surfaceTargetFromPointer(e);
+        const surfaceTargetKey = controlTargetKey({ type: 'plague', ...surface });
+        const plagueTarget = surfacePlagues.find(p => controlTargetKey({ type: 'plague', ...p }) === surfaceTargetKey);
+        const target = lightningTargetNearPoint(canvasPoint(e)) ||
+          (plagueTarget ? { type: 'plague', ...plagueTarget } : null) ||
+          controllableTargetAt(x, y);
+        if (target) {
+          togglePendingControlTarget(target);
+          isPainting = false;
+          return;
+        }
+        placeBoundControl(x, y, currentChar);
+        isPainting = false;
+        return;
+      }
+      placeCell(x, y, char, e.shiftKey, e.ctrlKey || e.metaKey);
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (viewMode === 'world') {
+        const point = canvasPoint(e);
+        if (mapDrag) {
+          const worldX = point.x - mapCamera.x;
+          const worldY = point.y - mapCamera.y;
+          const rawX = worldX - mapDrag.dx;
+          const rawY = worldY - mapDrag.dy;
+          const snapped = snapMapRoom(mapDrag.room, rawX, rawY);
+          mapDrag.room.mapX = snapped.x;
+          mapDrag.room.mapY = snapped.y;
+          hoveredMapRoom = mapDrag.room;
+          render();
+        } else if (mapPan) {
+          mapCamera.x = mapPan.cameraX + point.x - mapPan.startX;
+          mapCamera.y = mapPan.cameraY + point.y - mapPan.startY;
+          hoveredMapRoom = null;
+          render();
+        } else {
+          hoveredMapRoom = mapRoomAt(point);
+          canvas.style.cursor = hoveredMapRoom ? 'grab' : 'default';
+          render();
+        }
+        return;
+      }
+      const { x, y } = getCell(e);
+      cursorX = x;
+      cursorY = y;
+      if (enemyDrag) {
+        enemyDrag.current = { x, y };
+        render();
+        return;
+      }
+      if (emitterDrag) {
+        emitterDrag.current = { x, y };
+        render();
+        return;
+      }
+      if (isPainting) paintAt(e);
+      else render();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      cursorX = -1;
+      cursorY = -1;
+      isPainting = false;
+      if (mapDrag) saveWorldMapLayout();
+      mapDrag = null;
+      mapPan = null;
+      hoveredMapRoom = null;
+      render();
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      if (viewMode === 'world') {
+        if (e.button !== 0) return;
+        const point = canvasPoint(e);
+        const room = mapRoomAt(point);
+        if (room) {
+          const worldX = point.x - mapCamera.x;
+          const worldY = point.y - mapCamera.y;
+          mapDrag = { room, dx: worldX - room.mapX, dy: worldY - room.mapY };
+          hoveredMapRoom = room;
+          canvas.style.cursor = 'grabbing';
+        } else {
+          mapPan = {
+            startX: point.x,
+            startY: point.y,
+            cameraX: mapCamera.x,
+            cameraY: mapCamera.y
+          };
+          hoveredMapRoom = null;
+          canvas.style.cursor = 'grabbing';
+        }
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === 'M' && e.button === 0) {
+        const cell = getCell(e);
+        enemyDrag = { start: cell, current: cell };
+        isPainting = false;
+        render();
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === 'O' && e.button === 0) {
+        const cell = getCell(e);
+        emitterDrag = { start: cell, current: cell };
+        isPainting = false;
+        render();
+        return;
+      }
+      isPainting = true;
+      paintButton = e.button;
+      lastPaintKey = '';
+      paintAt(e);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (enemyDrag) {
+        finishEnemyPatrol();
+        return;
+      }
+      if (emitterDrag) {
+        finishEmitterPlacement();
+        return;
+      }
+      if (mapDrag) {
+        saveWorldMapLayout();
+        mapDrag = null;
+        canvas.style.cursor = 'grab';
+      }
+      if (mapPan) {
+        mapPan = null;
+        canvas.style.cursor = 'grab';
+      }
+      isPainting = false;
+      lastPaintKey = '';
+    });
+
+    canvas.addEventListener('dblclick', (e) => {
+      if (viewMode !== 'world') return;
+      const room = mapRoomAt(canvasPoint(e));
+      if (!room) return;
+      viewMode = 'room';
+        document.getElementById('btn-world-map').textContent = '切换到单关';
+      document.getElementById('btn-world-map').classList.remove('active');
+      canvas.style.cursor = 'crosshair';
+      loadRoom(room.room);
+    });
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 9) {
+        const idx = num - 1;
+        if (idx < BLOCK_TYPES.length) selectBlock(BLOCK_TYPES[idx].char);
+        return;
+      }
+
+      if (e.key === '0') {
+        const idx = 9;
+        if (idx < BLOCK_TYPES.length) selectBlock(BLOCK_TYPES[idx].char);
+      }
+
+      const shortcuts = { '#': '#', '=': '=', '-': '-', 'u': 'U', 'l': 'L', 'j': 'J', '.': '.', 'h': 'H', '!': '!', '~': '~', 'm': 'M', 'k': 'K', 's': 'S', 'i': 'I', 't': 'T', 'f': 'F', 'd': 'D', 'g': 'G', 'r': 'R', 'w': 'W', 'b': 'B', 'a': 'A', 'p': 'P', 'c': 'C' };
+      if (shortcuts[e.key.toLowerCase()]) {
+        selectBlock(shortcuts[e.key.toLowerCase()]);
+      }
+      if (e.key.toLowerCase() === 'v') setMode(editorMode === 'surface' ? 'tile' : 'surface');
+      if (e.key.toLowerCase() === 's') setMode('spawn');
+    });
+
+    document.getElementById('mode-tile').addEventListener('click', () => setMode('tile'));
+    document.getElementById('mode-surface').addEventListener('click', () => setMode('surface'));
+    document.getElementById('size-normal').addEventListener('click', () => setRoomSize(20));
+    document.getElementById('size-boss').addEventListener('click', () => setRoomSize(40));
+    document.getElementById('btn-spawn').addEventListener('click', () => setMode('spawn'));
+    document.getElementById('btn-reach-overlay').addEventListener('click', (event) => {
+      reachOverlay = !reachOverlay;
+      event.currentTarget.classList.toggle('active', reachOverlay);
+      event.currentTarget.textContent = reachOverlay ? '可达区域：开' : '可达区域：关';
+      render();
+    });
+    document.getElementById('playtest-loadout').addEventListener('change', () => {
+      if (reachOverlay) render();
+    });
+    document.getElementById('btn-world-map').addEventListener('click', () => toggleWorldMap());
+
+    document.getElementById('btn-load-room').addEventListener('click', () => {
+      const num = parseInt(document.getElementById('room-num').value) || 1;
+      loadRoom(num);
+    });
+
+    document.getElementById('btn-delete-room').addEventListener('click', async () => {
+      const roomId = currentRoom;
+      if (!confirm(`确定永久删除第 ${roomId} 关吗？\n\n关卡内容和大地图位置都会被删除，但其它关卡不会重新编号。以后仍可加载第 ${roomId} 关重新制作。\n\n此操作无法撤销。`)) return;
+      try {
+        const response = await fetch('/api/delete-level', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ room: roomId })
+        });
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || '导出失败');
+
+        localStorage.removeItem(`room_${roomId}`);
+        localStorage.removeItem('exportedLevelsFingerprint');
+        const layout = loadLocalMapLayout();
+        if (layout.positions) delete layout.positions[String(roomId)];
+        localStorage.setItem('worldMapLayout', JSON.stringify(layout));
+        mapLayout = layout;
+        mapRooms = mapRooms.filter(room => Number(room.room) !== roomId);
+
+        const exported = await fetch('/api/exported-levels', { cache: 'no-store' }).then(item => item.json());
+        if (exported.ok) {
+          localStorage.setItem('exportedLevelsFingerprint', JSON.stringify({
+            rooms: exported.rooms,
+            map: exported.map || null
+          }));
+        }
+        loadRoom(roomId);
+      } catch (error) {
+        alert(`删除失败：${error.message}\n请确认编辑器是通过“启动关卡编辑器.bat”打开的。`);
+      }
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      grid = createEmptyGrid();
+      surfacePlagues = [];
+      controlBindings = [];
+      lightningChains = [];
+      emitters = [];
+      sequencers = [];
+      targetDefaults = {};
+      activeLightningChain = -1;
+      enemyPatrols = [];
+      pendingControlTargets = [];
+      saveRoomData();
+      render();
+    });
+
+    document.getElementById('btn-walls').addEventListener('click', () => {
+      for (let x = 0; x < COLS; x += 1) {
+        grid[0][x] = '#';
+        grid[ROWS - 1][x] = '#';
+        grid[ROOM_FLOOR][x] = '#';
+      }
+      for (let y = 0; y < ROWS; y += 1) {
+        grid[y][0] = '#';
+        grid[y][COLS - 1] = '#';
+      }
+      saveRoomData();
+      render();
+    });
+
+    document.getElementById('btn-export').addEventListener('click', (event) => {
+      saveRoomData();
+      const data = currentRoomExportData();
+      document.getElementById('data-io').value = JSON.stringify(data);
+      writeLevelFiles({ version: 1, cols: COLS, rows: ROWS, rooms: [data] }, event.currentTarget);
+    });
+
+    document.getElementById('btn-export-all').addEventListener('click', (event) => {
+      const data = buildAllLevelsExport();
+      document.getElementById('data-io').value = JSON.stringify(data);
+      writeLevelFiles(data, event.currentTarget);
+    });
+
+    document.getElementById('btn-import').addEventListener('click', () => {
+      try {
+        const data = JSON.parse(document.getElementById('data-io').value);
+        if (Array.isArray(data.rooms)) {
+          for (const roomData of data.rooms) {
+            if (!roomData.room || !Array.isArray(roomData.blocks)) continue;
+            const size = roomSizeFromData(roomData);
+            const normalized = {
+              roomSize: size,
+              blocks: normalizeGrid(roomData.blocks, size).map(row => row.join('')),
+              surfacePlagues: dedupeSurfacePlagues(roomData.surfacePlagues || []),
+              controlBindings: roomData.controlBindings || [],
+              lightningChains: normalizeLightningChains(roomData),
+              lightningNodes: allLightningNodes(normalizeLightningChains(roomData)),
+              emitters: roomData.emitters || [],
+              sequencers: roomData.sequencers || [],
+              targetDefaults: roomData.targetDefaults || {},
+              enemyPatrols: roomData.enemyPatrols || [],
+              spawn: roomData.spawn || defaultSpawn(size)
+            };
+            localStorage.setItem(`room_${roomData.room}`, JSON.stringify(normalized));
+          }
+          loadRoom(currentRoom);
+        } else if (data.blocks && Array.isArray(data.blocks)) {
+          applyRoomSize(roomSizeFromData(data));
+          grid = normalizeGrid(data.blocks, roomSize);
+          surfacePlagues = dedupeSurfacePlagues(data.surfacePlagues || []);
+          controlBindings = data.controlBindings || [];
+          lightningChains = normalizeLightningChains(data);
+          emitters = data.emitters || [];
+          sequencers = data.sequencers || [];
+          activeLightningChain = -1;
+          enemyPatrols = data.enemyPatrols || [];
+          spawn = data.spawn || defaultSpawn();
+          if (data.room) currentRoom = data.room;
+          saveRoomData();
+          render();
+        }
+      } catch (err) {
+        alert('导入失败：无效数据格式。');
+      }
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (confirm('确定要重置当前房间吗？这将清除所有自定义内容。')) {
+        localStorage.removeItem(`room_${currentRoom}`);
+        grid = createDefaultRoom();
+        surfacePlagues = [];
+        controlBindings = [];
+        lightningChains = [];
+        emitters = [];
+        sequencers = [];
+        targetDefaults = {};
+        activeLightningChain = -1;
+        enemyPatrols = [];
+        pendingControlTargets = [];
+        spawn = defaultSpawn();
+        saveRoomData();
+        render();
+      }
+    });
+
+    document.getElementById('btn-playtest-room').addEventListener('click', () => {
+      const loadout = document.getElementById('playtest-loadout').value;
+      saveRoomData();
+      let roomData = currentRoomExportData();
+      if (viewMode === 'world') {
+        const target = hoveredMapRoom || mapRooms.find(room => Number(room.room) === Number(currentRoom));
+        if (target) {
+          roomData = localRoomExportData(target.room) || {
+            room: Number(target.room),
+            roomSize: roomSizeFromData(target),
+            blocks: normalizeGrid(target.blocks, roomSizeFromData(target)).map(row => row.join('')),
+            surfacePlagues: dedupeSurfacePlagues(target.surfacePlagues || []),
+            controlBindings: target.controlBindings || [],
+            lightningChains: normalizeLightningChains(target),
+            lightningNodes: allLightningNodes(normalizeLightningChains(target)),
+            emitters: target.emitters || [],
+            sequencers: target.sequencers || [],
+            targetDefaults: target.targetDefaults || {},
+            enemyPatrols: target.enemyPatrols || [],
+            spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
+          };
+        }
+      }
+      if (isDefaultRoomData(roomData) && !confirm('当前试玩数据看起来是默认空房间。仍然试玩吗？')) {
+        return;
+      }
+      const data = {
+        id: roomData.room,
+        roomSize: roomSizeFromData(roomData),
+        name: `编辑器试玩${String(roomData.room).padStart(2, '0')}`,
+        spawn: Array.isArray(roomData.spawn) ? roomData.spawn : [roomData.spawn.x, roomData.spawn.y],
+        flag: null,
+        helmet: null,
+        links: {},
+        blocks: roomData.blocks,
+        surfacePlagues: dedupeSurfacePlagues(roomData.surfacePlagues || []),
+        controlBindings: roomData.controlBindings || [],
+        lightningChains: normalizeLightningChains(roomData),
+        lightningNodes: allLightningNodes(normalizeLightningChains(roomData)),
+        emitters: roomData.emitters || [],
+        sequencers: roomData.sequencers || [],
+        targetDefaults: roomData.targetDefaults || {},
+        enemyPatrols: roomData.enemyPatrols || [],
+        playtestLoadout: loadout
+      };
+      localStorage.setItem('editorPlaytestRoom', JSON.stringify(data));
+      const playUrl = `index.html?editorTest=1&fresh=${Date.now()}`;
+      const playWindow = window.open(playUrl, '_blank');
+      if (!playWindow) alert('浏览器阻止了试玩窗口，请允许此页面打开弹出式窗口后重试。');
+      writeLevelFiles({ version: 1, cols: COLS, rows: ROWS, rooms: [roomData] });
+    });
+
+    document.getElementById('btn-playtest-world').addEventListener('click', () => {
+      saveRoomData();
+      if (viewMode !== 'world') {
+        mapLayout = loadLocalMapLayout();
+        mapRooms = applyMapPositions(buildAllLevelsExport().rooms, mapLayout);
+      }
+      if (!mapRooms.length) {
+        alert('还没有可总体试玩的关卡。先编辑或保存至少一关。');
+        return;
+      }
+      saveWorldMapLayout();
+      const data = buildWorldPlaytestData();
+      localStorage.setItem('editorWorldPlaytest', JSON.stringify(data));
+      const playUrl = `index.html?worldTest=1&fresh=${Date.now()}`;
+      const playWindow = window.open(playUrl, '_blank');
+      if (!playWindow) alert('浏览器阻止了试玩窗口，请允许此页面打开弹出式窗口后重试。');
+      writeLevelFiles(buildAllLevelsExport());
+    });
+
+    async function bootstrapEditor() {
+      await syncChangedExportedLevels();
+      buildPalette();
+      setMode('tile');
+      selectBlock('#');
+      loadRoom(1);
+    }
+
+    bootstrapEditor();
+    setInterval(() => {
+      if (viewMode === 'room' && CONTROL_CHARS.has(currentChar) && grid.length === ROWS) render();
+    }, 120);
+  </script>
+</body>
+</html>
