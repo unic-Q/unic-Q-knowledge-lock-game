@@ -681,6 +681,7 @@ function update(dt) {
   player.stun = Math.max(0, player.stun - dt);
   player.plagueGrace = Math.max(0, player.plagueGrace - dt);
   state.zoneInvincibleTimer = Math.max(0, state.zoneInvincibleTimer - dt);
+  if (state.zoneInvincibleTimer <= 0) state.zoneInvincibleGranted = false;
   player.onGround = false;
   updateGravityZones(dt);
 
@@ -963,13 +964,12 @@ function updateGravityZones(dt) {
   }
   if (inZone) {
     state.gravityZoneTime += dt;
-    if (state.gravityZoneTime >= 3 && !state.zoneInvincibleGranted) {
-      state.zoneInvincibleTimer = 10;
+    if (state.gravityZoneTime >= 2 && !state.zoneInvincibleGranted) {
+      state.zoneInvincibleTimer = 8;
       state.zoneInvincibleGranted = true;
     }
   } else {
     state.gravityZoneTime = 0;
-    state.zoneInvincibleGranted = false;
   }
 }
 
