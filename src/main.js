@@ -105,7 +105,7 @@ function loadRoom(index, spawn) {
     state.checkpoint = { roomIndex: state.roomIndex, x: start[0], y: start[1], form: "none", helmetOwned: state.helmetOwned, unlockedForms: [...state.unlockedForms], worldRot: 0 };
   }
   state.selectedForm = state.form === "none" ? "red" : state.form;
-  state.worldRot = state.checkpoint.worldRot ?? 0;
+  state.worldRot = 0;
   state.greenAfterimageMemory = false;
   state.helmetHeld = 0;
   state.choosing = false;
@@ -306,7 +306,7 @@ function finishRespawn(reason = "unknown") {
   if (state.form !== "none" && !state.unlockedForms.has(state.form)) state.form = state.unlockedForms.values().next().value || "none";
   state.selectedForm = state.form === "none" ? "red" : state.form;
   state.player = makePlayer(state.checkpoint.x, state.checkpoint.y);
-  state.worldRot = state.checkpoint.worldRot ?? 0;
+  state.worldRot = 0;
   state.helmetHeld = 0;
   state.gravityScale = 1;
   state.wasInGravityZone = false;
