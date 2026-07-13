@@ -1,0 +1,66 @@
+{
+  "room": 25,
+  "roomSize": 20,
+  "blocks": [
+    "####################",
+    "#CC....CCCCCC....CC#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#...................",
+    "#...................",
+    "#.................F#",
+    "#===............===#",
+    "#..................#",
+    "#..................#",
+    "#.....===..===.....#",
+    "#..................#",
+    "#..................#",
+    "#!!!!!!!!!!!!!!!!!!#",
+    "####################"
+  ],
+  "surfacePlagues": [],
+  "controlBindings": [],
+  "lightningChains": [],
+  "lightningNodes": [],
+  "emitters": [],
+  "sequencers": [],
+  "targetDefaults": {},
+  "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [
+    {
+      "x": 3,
+      "y": 1,
+      "w": 4,
+      "h": 1,
+      "spawnKind": "platform",
+      "interval": 3.5,
+      "speed": 10,
+      "platformLength": 2
+    },
+    {
+      "x": 13,
+      "y": 1,
+      "w": 4,
+      "h": 1,
+      "spawnKind": "platform",
+      "interval": 3.5,
+      "speed": 10,
+      "platformLength": 2
+    }
+  ],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
+  "spawn": {
+    "x": 100,
+    "y": 356
+  }
+}

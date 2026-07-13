@@ -7,7 +7,7 @@
     "#.....L.......L....#",
     "#.....L..ML...L....#",
     "#.....L...L...LM...#",
-    "#.....L...L..ML....#",
+    "#C....L...L..ML....#",
     "......L...L...L.....",
     "CC....L...L...L.....",
     "CC....L...L...L..F..",
@@ -162,6 +162,13 @@
       }
     }
   ],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 612,
     "y": 260

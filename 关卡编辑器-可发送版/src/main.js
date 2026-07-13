@@ -60,6 +60,11 @@ const state = {
   gravityZoneTime: 0,
   zoneInvincibleTimer: 0,
   zoneInvincibleGranted: false,
+  finalBossBlockedForms: new Set(),
+  blockedFormFeedback: null,
+  blockedFormTimer: 0,
+  finalBossForbiddenForm: null,
+  finalBossForbiddenTimer: 0,
 };
 
 function logEvent(type, data = {}) {
@@ -427,7 +432,10 @@ function setupEditorWorldPlaytest() {
 function switchForm(next) {
   if (!state.helmetOwned) return;
   if (!state.unlockedForms.has(next)) return;
-  if (isFinalBossFormBlocked(next)) return;
+  if (isFinalBossFormBlocked(next)) {
+    showFormBlockedFeedback(next);
+    return;
+  }
   if (state.form === "none" && next === "none") return;
   if (state.form !== "none" && next === "none") return;
   const wasWhite = state.form === "white";
@@ -440,6 +448,12 @@ function switchForm(next) {
   state.player.hook = null;
   if (wasWhite && next !== "white") state.player.plagueGrace = 0.45;
   updateHud();
+}
+
+function showFormBlockedFeedback(form) {
+  state.blockedFormFeedback = form;
+  state.blockedFormTimer = 1.1;
+  hintLabel.textContent = `${FORMS[form]?.name || form} 被最终Boss禁用`;
 }
 
 function beginChoice() {
@@ -973,6 +987,10 @@ function projectileIgnoredByForm(projectile) {
 
 function updateGravityZones(dt) {
   const { room, player } = state;
+  for (const zone of room.gravityZones || []) {
+    if (Number.isFinite(zone.life)) zone.life -= dt;
+  }
+  room.gravityZones = (room.gravityZones || []).filter((zone) => !Number.isFinite(zone.life) || zone.life > 0);
   const inZone = (room.gravityZones || []).some((zone) => rectsOverlap(player, transformedRect(state, zone)));
   state.gravityScale = inZone ? 0.1 : 1;
   if (inZone !== state.wasInGravityZone) {
@@ -1500,6 +1518,10 @@ function fireRouteBossProjectile(boss, actor, x, y) {
 
 function updateFinalBosses(dt) {
   const { room, player } = state;
+  state.finalBossBlockedForms = new Set();
+  state.blockedFormTimer = Math.max(0, (state.blockedFormTimer || 0) - dt);
+  if (state.blockedFormTimer <= 0) state.blockedFormFeedback = null;
+  let activeForbidden = null;
   for (const boss of room.finalBosses || []) {
     if (boss.defeated || boss.enabled === false) continue;
     initializeFinalBoss(boss);
@@ -1508,11 +1530,13 @@ function updateFinalBosses(dt) {
     boss.plagueTimer -= dt;
     boss.plagueActiveTimer = Math.max(0, (boss.plagueActiveTimer || 0) - dt);
     boss.lightningTimer -= dt;
+    boss.skillFlashTimer = Math.max(0, (boss.skillFlashTimer || 0) - dt);
     if (boss.phase >= 2) updateFinalBossColorLock(boss, dt);
     if (boss.skillTimer <= 0) {
       finalBossPushPull(boss, boss.skillMode === "pull" ? "pull" : "push");
       boss.skillMode = boss.skillMode === "pull" ? "push" : "pull";
       boss.skillTimer = 6;
+      boss.skillFlashTimer = 0.75;
     }
     if (boss.phase >= 2 && boss.plagueTimer <= 0) {
       boss.plagueActiveTimer = 3.5;
@@ -1523,20 +1547,57 @@ function updateFinalBosses(dt) {
       boss.lightningTimer = 7;
     }
     updateFinalBossLightning(boss, dt);
-    if (state.form !== "none" && finalBossQuadrantBan(boss, player) === state.form) {
-      respawn("finalBossColorBan");
-      return;
-    }
     if (boss.phase >= 2 && boss.lockedForm && state.form !== boss.lockedForm && state.unlockedForms.has(boss.lockedForm)) {
       forceFinalBossForm(boss.lockedForm);
     }
+    updateFinalBossBlockedForms(boss);
+    const forbidden = finalBossActiveForbiddenForm(boss);
+    if (forbidden) activeForbidden = forbidden;
     const weak = finalBossWeakRect(boss);
     boss.weakPoint = weak;
-    if (weak && boss.weakCooldown <= 0 && rectsOverlap(player, weak)) hitFinalBoss(boss);
+    const weakOverlap = Boolean(weak && rectsOverlap(player, weak));
+    if (weakOverlap && !boss.weakContact && boss.weakCooldown <= 0) hitFinalBoss(boss);
+    boss.weakContact = weakOverlap;
     if (boss.plagueActiveTimer > 0 && state.form !== "white" && rectsOverlap(player, transformedRect(state, boss))) {
       if (!surviveHazard(player)) return;
     }
   }
+  updateFinalBossForbiddenCountdown(activeForbidden, dt);
+}
+
+function finalBossActiveForbiddenForm(boss) {
+  if (state.form === "none") return null;
+  if (boss.phase >= 2) {
+    return boss.lockedForm && state.form !== boss.lockedForm ? state.form : null;
+  }
+  return finalBossQuadrantBan(boss, state.player) === state.form ? state.form : null;
+}
+
+function updateFinalBossForbiddenCountdown(form, dt) {
+  if (!form) {
+    state.finalBossForbiddenForm = null;
+    state.finalBossForbiddenTimer = 0;
+    return;
+  }
+  if (state.finalBossForbiddenForm !== form || !(state.finalBossForbiddenTimer > 0)) {
+    state.finalBossForbiddenForm = form;
+    state.finalBossForbiddenTimer = 5;
+  } else {
+    state.finalBossForbiddenTimer = Math.max(0, state.finalBossForbiddenTimer - dt);
+  }
+  if (state.finalBossForbiddenTimer <= 0) respawn("finalBossForbiddenForm");
+}
+
+function updateFinalBossBlockedForms(boss) {
+  if (boss.phase >= 2) {
+    if (!boss.lockedForm) return;
+    for (const form of ["red", "green", "white", "black"]) {
+      if (form !== boss.lockedForm) state.finalBossBlockedForms.add(form);
+    }
+    return;
+  }
+  const blocked = finalBossQuadrantBan(boss, state.player);
+  if (blocked) state.finalBossBlockedForms.add(blocked);
 }
 
 function initializeFinalBoss(boss) {
@@ -1547,23 +1608,27 @@ function initializeFinalBoss(boss) {
   boss.phaseHp = 12;
   boss.weakSide = randomFinalBossSide();
   boss.quadrantBans = randomFinalBossQuadrantBans();
+  boss.weakContact = false;
   boss.activatedKeys = new Set();
   boss.activatableKeys = finalBossActivatableKeys(boss);
   boss.colorLockTimer = 0;
   boss.lockedForm = null;
+  boss.skillFlashTimer = 0;
 }
 
 function hitFinalBoss(boss) {
   boss.hp = Math.max(0, boss.hp - 1);
   boss.phaseHp -= 1;
   boss.weakCooldown = 0.6;
+  boss.weakContact = true;
   boss.weakSide = randomFinalBossSide();
-  boss.quadrantBans = randomFinalBossQuadrantBans();
+  if (boss.phase === 1) boss.quadrantBans = randomFinalBossQuadrantBans();
   activateNextFinalBossMechanism(boss);
   state.shake = Math.max(state.shake, 8);
   if (boss.phase === 1 && boss.phaseHp <= 0) {
     boss.phase = 2;
     boss.phaseHp = 16;
+    boss.quadrantBans = [];
     boss.colorLockTimer = 0;
     updateFinalBossColorLock(boss, 0);
   }
@@ -1583,7 +1648,11 @@ function randomFinalBossSide() {
 
 function randomFinalBossQuadrantBans() {
   const forms = ["red", "green", "white", "black"];
-  return Array.from({ length: 4 }, () => forms[Math.floor(Math.random() * forms.length)]);
+  for (let i = forms.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [forms[i], forms[j]] = [forms[j], forms[i]];
+  }
+  return forms;
 }
 
 function finalBossWeakRect(boss) {
@@ -1610,6 +1679,7 @@ function isFinalBossFormBlocked(form) {
   const boss = (state.room?.finalBosses || []).find((item) => !item.defeated && item.enabled !== false);
   if (!boss) return false;
   if (boss.phase >= 2 && boss.lockedForm && boss.lockedForm !== form) return true;
+  if (boss.phase >= 2) return false;
   return finalBossQuadrantBan(boss, state.player) === form;
 }
 
@@ -1621,7 +1691,6 @@ function finalBossActivatableKeys(boss) {
   };
   for (const h of state.room.hazards || []) add(h.targetKey || `hazard:${h.x},${h.y}`, h);
   for (const e of state.room.emitters || []) add(e.targetKey || `emitter:${e.index}`, e);
-  for (const g of state.room.platformGenerators || []) add(g.targetKey || `platformGenerator:${g.index}`, g);
   for (const s of state.room.lightningSegments || []) {
     const rect = {
       x: Math.min(s.ax, s.bx),
@@ -1646,12 +1715,11 @@ function activateNextFinalBossMechanism(boss) {
 function setFinalBossMechanismEnabled(key, enabled) {
   for (const h of state.room.hazards || []) if ((h.targetKey || `hazard:${h.x},${h.y}`) === key) h.disabled = !enabled;
   for (const e of state.room.emitters || []) if ((e.targetKey || `emitter:${e.index}`) === key) e.disabled = !enabled;
-  for (const g of state.room.platformGenerators || []) if ((g.targetKey || `platformGenerator:${g.index}`) === key) g.enabled = enabled;
   for (const s of state.room.lightningSegments || []) if (s.targetKey === key) s.disabled = !enabled;
 }
 
 function finalBossInfluenceRect(boss) {
-  const pad = TILE * 6;
+  const pad = TILE * 12;
   return { x: boss.x - pad, y: boss.y - pad, w: boss.w + pad * 2, h: boss.h + pad * 2 };
 }
 
@@ -1660,10 +1728,11 @@ function finalBossPushPull(boss, mode) {
   const cx = boss.x + boss.w / 2;
   const cy = boss.y + boss.h / 2;
   const objects = [
-    ...(state.room.hazards || []),
-    ...(state.room.emitters || []),
-    ...(state.room.platformGenerators || []),
+    ...(state.room.fallingObjects || []).filter((object) =>
+      object.source === "platformGenerator" && (object.kind === "platform" || object.kind === "spike")
+    ),
   ];
+  if (mode === "push") createFinalBossVomitGravityZone(boss);
   for (const object of objects) {
     if (!rectsOverlap(area, object)) continue;
     const ox = object.x + object.w / 2;
@@ -1671,12 +1740,45 @@ function finalBossPushPull(boss, mode) {
     let dx = ox - cx;
     let dy = oy - cy;
     const length = Math.hypot(dx, dy) || 1;
-    const sign = mode === "pull" ? -1 : 1;
-    object.x += dx / length * TILE * sign;
-    object.y += dy / length * TILE * sign;
+    const towardX = dx / length;
+    const towardY = dy / length;
+    const maxDistance = TILE * 12;
+    const normalizedDistance = Math.max(0.18, Math.min(1, length / maxDistance));
+    const falloff = 1 / (normalizedDistance * normalizedDistance);
+    const clampedFalloff = Math.max(0.18, Math.min(4, falloff));
+    const impulse = TILE * (mode === "pull" ? 1.15 : 1.65) * clampedFalloff;
+    const velocity = TILE * (mode === "pull" ? 1.4 : 2.4) * clampedFalloff;
+    if (mode === "pull") {
+      object.x -= towardX * impulse;
+      object.y -= towardY * impulse;
+      object.vx = -towardX * velocity;
+      object.vy = -towardY * velocity;
+      object.pauseTimer = Math.max(object.pauseTimer || 0, 0.35 * clampedFalloff);
+    } else {
+      object.x += towardX * impulse;
+      object.y += towardY * impulse;
+      object.vx = towardX * velocity;
+      object.vy = towardY * velocity;
+      object.clearTimer = Math.max(object.clearTimer || 0, 0.55 * clampedFalloff);
+    }
     object.x = Math.max(0, Math.min(state.room.width - object.w, object.x));
     object.y = Math.max(0, Math.min(state.room.height - object.h, object.y));
   }
+}
+
+function createFinalBossVomitGravityZone(boss) {
+  const pad = TILE * 2;
+  const zone = {
+    x: Math.max(0, boss.x - pad),
+    y: Math.max(0, boss.y - pad),
+    w: Math.min(state.room.width, boss.x + boss.w + pad) - Math.max(0, boss.x - pad),
+    h: Math.min(state.room.height, boss.y + boss.h + pad) - Math.max(0, boss.y - pad),
+    source: "finalBoss",
+    owner: boss.index,
+    life: 3.2,
+  };
+  state.room.gravityZones = (state.room.gravityZones || []).filter((item) => item.source !== "finalBoss" || item.owner !== boss.index);
+  state.room.gravityZones.push(zone);
 }
 
 function updateFinalBossColorLock(boss, dt) {
@@ -1698,14 +1800,29 @@ function forceFinalBossForm(form) {
 
 function queueFinalBossLightning(boss) {
   boss.lightningWarnings ||= [];
-  const count = 2 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < count; i += 1) {
-    boss.lightningWarnings.push({
-      x: Math.floor(Math.random() * Math.max(1, state.room.cols)) * TILE + TILE / 2,
-      y: Math.floor(Math.random() * Math.max(1, state.room.rows)) * TILE + TILE / 2,
-      timer: 1.2,
-    });
+  const first = randomFinalBossLightningPoint();
+  let second = randomFinalBossLightningPoint();
+  for (let tries = 0; tries < 80 && distancePoints(first, second) < TILE * 15; tries += 1) {
+    second = randomFinalBossLightningPoint();
   }
+  if (distancePoints(first, second) < TILE * 15) {
+    second = {
+      x: Math.max(TILE / 2, Math.min(state.room.width - TILE / 2, first.x + (first.x < state.room.width / 2 ? TILE * 15 : -TILE * 15))),
+      y: Math.max(TILE / 2, Math.min(state.room.height - TILE / 2, first.y)),
+    };
+  }
+  for (const point of [first, second]) boss.lightningWarnings.push({ ...point, timer: 2 });
+}
+
+function randomFinalBossLightningPoint() {
+  return {
+    x: Math.floor(Math.random() * Math.max(1, state.room.cols)) * TILE + TILE / 2,
+    y: Math.floor(Math.random() * Math.max(1, state.room.rows)) * TILE + TILE / 2,
+  };
+}
+
+function distancePoints(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function updateFinalBossLightning(boss, dt) {
@@ -1940,19 +2057,38 @@ function updatePlatformGenerators(dt) {
     generator.timer = (generator.timer || 0) - dt;
     if (generator.timer > 0) continue;
     generator.timer += generator.interval;
-    const cells = Math.max(1, Math.floor(generator.w / TILE));
     const platformLength = Math.max(1, Math.floor(generator.platformLength || 1));
-    const cell = Math.floor(Math.random() * cells);
     const kind = generator.spawnKind === "spike" ? "spike" : "platform";
+    const direction = normalizedGeneratorDirection(generator);
+    const width = kind === "platform" ? platformLength * TILE : TILE;
+    const spawn = platformGeneratorSpawnPoint(generator, direction, width, kind === "platform" ? TILE / 2 : TILE);
     spawnFallingObject({
       kind,
-      x: generator.x + cell * TILE,
-      y: generator.y,
-      w: kind === "platform" ? platformLength * TILE : TILE,
+      x: spawn.x,
+      y: spawn.y,
+      w: width,
       speed: generator.speed,
+      vx: direction.x * generator.speed,
+      vy: direction.y * generator.speed,
       source: "platformGenerator",
     });
   }
+}
+
+function platformGeneratorSpawnPoint(generator, direction, objectW, objectH) {
+  const spanX = Math.max(0, generator.w - objectW);
+  const spanY = Math.max(0, generator.h - objectH);
+  const randomTileOffset = (span) => Math.floor(Math.random() * (Math.floor(span / TILE) + 1)) * TILE;
+  const x = generator.x + (direction.x < 0 ? spanX : direction.x > 0 ? 0 : randomTileOffset(spanX));
+  const y = generator.y + (direction.y < 0 ? spanY : direction.y > 0 ? 0 : randomTileOffset(spanY));
+  return { x, y };
+}
+
+function normalizedGeneratorDirection(generator) {
+  const rawX = Number(generator.dirX || 0);
+  const rawY = Number(generator.dirY ?? 1);
+  const length = Math.hypot(rawX, rawY) || 1;
+  return { x: rawX / length, y: rawY / length };
 }
 
 function updateDropBosses(dt) {
@@ -2136,7 +2272,7 @@ function randomBossDropKind() {
   return "plague";
 }
 
-function spawnFallingObject({ kind, x, y, w, speed, source, maxAge }) {
+function spawnFallingObject({ kind, x, y, w, speed, vx, vy, source, maxAge }) {
   const { room } = state;
   room.fallingObjects ||= [];
   const width = Math.max(TILE, w || (kind === "lightning" ? TILE * 2 : TILE));
@@ -2148,7 +2284,8 @@ function spawnFallingObject({ kind, x, y, w, speed, source, maxAge }) {
     y,
     w: width,
     h: kind === "platform" || kind === "breakable" ? TILE / 2 : TILE,
-    vy: Math.max(0.1, speed || TILE * 2),
+    vx: Number.isFinite(vx) ? vx : 0,
+    vy: Number.isFinite(vy) ? vy : Math.max(0.1, speed || TILE * 2),
     solid: kind === "wall",
     face: "up",
     moving: kind === "platform" || kind === "breakable",
@@ -2178,12 +2315,20 @@ function updateFallingObjects(dt) {
       continue;
     }
     const previous = { x: object.x, y: object.y, w: object.w, h: object.h };
-    const carrier = findCarrierPlatform(object);
+    object.pauseTimer = Math.max(0, (object.pauseTimer || 0) - dt);
+    object.clearTimer = Math.max(0, (object.clearTimer || 0) - dt);
+    if (object.pauseTimer > 0) {
+      object.lastDx = 0;
+      object.lastDy = 0;
+      continue;
+    }
+    const carrier = object.source === "platformGenerator" ? null : findCarrierPlatform(object);
     if (carrier) {
       object.x += carrier.lastDx || 0;
       object.y = carrier.y - object.h + (carrier.lastDy || 0);
       object.vy = Math.max(0, carrier.lastDy ? (carrier.lastDy / Math.max(dt, 0.001)) : 0);
     } else {
+      object.x += (object.vx || 0) * dt;
       object.y += object.vy * dt;
     }
     const dx = object.x - previous.x;
@@ -2194,7 +2339,12 @@ function updateFallingObjects(dt) {
       player.x += dx;
       player.y += dy;
     }
-    if (object.y > room.height + TILE * 3) object.dead = true;
+    if (
+      object.y > room.height + TILE * 3 ||
+      object.y + object.h < -TILE * 3 ||
+      object.x > room.width + TILE * 3 ||
+      object.x + object.w < -TILE * 3
+    ) object.dead = true;
   }
   room.fallingObjects = (room.fallingObjects || []).filter((object) => !object.dead);
   room.platforms = (room.platforms || []).filter((platform) => !platform.generated || !platform.dead);

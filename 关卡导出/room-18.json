@@ -1,5 +1,5 @@
 {
-  "room": 19,
+  "room": 18,
   "roomSize": 20,
   "blocks": [
     "####################",
@@ -20,8 +20,8 @@
     "#..................#",
     "#..................#",
     "#..................#",
-    "####################",
-    "####################"
+    "#..................#",
+    "####....############"
   ],
   "surfacePlagues": [],
   "controlBindings": [],
@@ -32,8 +32,14 @@
   "targetDefaults": {},
   "enemyPatrols": [],
   "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 68,
-    "y": 548
+    "y": 580
   }
 }

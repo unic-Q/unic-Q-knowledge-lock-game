@@ -144,6 +144,13 @@
       }
     }
   ],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 68,
     "y": 4

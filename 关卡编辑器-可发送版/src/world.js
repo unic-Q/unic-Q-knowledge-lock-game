@@ -516,6 +516,8 @@ export function parseRoom(data) {
     platformLength: Math.max(1, Number(item.platformLength || item.length || 1)),
     interval: Math.max(0.15, Number(item.interval || 1.2)),
     speed: Math.max(0.1, Number(item.speed || 1.4)) * TILE,
+    dirX: Number(item.dirX || 0),
+    dirY: Number(item.dirY ?? 1),
     timer: Math.max(0, Number(item.delay || 0)),
     enabled: true,
     targetKey: `platformGenerator:${index}`,

@@ -163,6 +163,12 @@
     }
   ],
   "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 612,
     "y": 260

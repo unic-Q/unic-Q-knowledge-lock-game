@@ -20,7 +20,7 @@
     "#..................#",
     "#..................#",
     "#..................#",
-    "####################",
+    "#..................#",
     "####################"
   ],
   "surfacePlagues": [],
@@ -31,6 +31,13 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 4,
     "y": 68

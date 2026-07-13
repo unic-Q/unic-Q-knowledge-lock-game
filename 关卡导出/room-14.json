@@ -21,9 +21,15 @@
     "#..................#",
     "#..................#",
     "#!................!#",
-    "####----############"
+    "#########.##########"
   ],
-  "surfacePlagues": [],
+  "surfacePlagues": [
+    {
+      "x": 8,
+      "y": 5,
+      "face": 1
+    }
+  ],
   "controlBindings": [],
   "lightningChains": [],
   "lightningNodes": [],
@@ -31,8 +37,15 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
-    "x": 100,
-    "y": 580
+    "x": 164,
+    "y": 356
   }
 }

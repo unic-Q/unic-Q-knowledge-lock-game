@@ -68,6 +68,12 @@
   "targetDefaults": {},
   "enemyPatrols": [],
   "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 36,
     "y": 324

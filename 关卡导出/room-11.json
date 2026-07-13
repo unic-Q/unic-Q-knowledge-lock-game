@@ -31,6 +31,13 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 68,
     "y": 580

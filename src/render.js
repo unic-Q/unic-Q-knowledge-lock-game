@@ -318,19 +318,56 @@ function drawFinalBoss(ctx, boss, state) {
   if (boss.defeated) return;
   ctx.save();
   const phase2 = boss.phase >= 2;
-  ctx.fillStyle = phase2 ? "#2f253b" : "#3d3048";
-  ctx.strokeStyle = phase2 ? "#9e7bd1" : "#f4c95d";
-  ctx.lineWidth = 4;
+  if (!phase2) drawFinalBossQuadrantFields(ctx, boss, state);
+  const flash = Math.max(0, Math.min(1, boss.skillFlashTimer || 0));
+  const plagueWindup = phase2 && !(boss.plagueActiveTimer > 0) ? Math.max(0, Math.min(1, (2 - (boss.plagueTimer ?? 99)) / 2)) : 0;
+  const lightningWindup = phase2 ? Math.max(0, Math.min(1, (2 - (boss.lightningTimer ?? 99)) / 2)) : 0;
+  ctx.save();
+  if (plagueWindup > 0) {
+    ctx.translate(boss.x + boss.w / 2, boss.y + boss.h / 2);
+    ctx.rotate(performance.now() * 0.012 * (1 + plagueWindup * 3));
+    ctx.translate(-boss.x - boss.w / 2, -boss.y - boss.h / 2);
+  }
+  ctx.fillStyle = phase2 ? "#8a1dff" : "#b000ff";
+  ctx.strokeStyle = phase2 ? "#ff4fd8" : "#ffe600";
+  ctx.lineWidth = 4 + plagueWindup * 3;
   ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
   ctx.strokeRect(boss.x + 1, boss.y + 1, boss.w - 2, boss.h - 2);
+  if (plagueWindup > 0) {
+    ctx.strokeStyle = `rgba(213,255,0,${0.25 + plagueWindup * 0.55})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(boss.x + 10, boss.y + boss.h / 2);
+    ctx.lineTo(boss.x + boss.w - 10, boss.y + boss.h / 2);
+    ctx.moveTo(boss.x + boss.w / 2, boss.y + 10);
+    ctx.lineTo(boss.x + boss.w / 2, boss.y + boss.h - 10);
+    ctx.stroke();
+  }
+  ctx.restore();
+  if (lightningWindup > 0) {
+    const pulse = 0.45 + 0.55 * Math.abs(Math.sin(performance.now() * 0.025));
+    ctx.strokeStyle = `rgba(0,255,106,${pulse})`;
+    ctx.lineWidth = 5 + lightningWindup * 5;
+    ctx.strokeRect(boss.x - 6, boss.y - 6, boss.w + 12, boss.h + 12);
+  }
+  if (flash > 0) {
+    const cx = boss.x + boss.w / 2;
+    const cy = boss.y + boss.h / 2;
+    const radius = Math.max(boss.w, boss.h) / 2 + (1 - flash) * TILE * 2.4;
+    ctx.strokeStyle = boss.skillMode === "pull" ? `rgba(255,230,0,${flash})` : `rgba(0,229,255,${flash})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   if ((boss.plagueActiveTimer || 0) > 0) {
-    ctx.fillStyle = "rgba(235,247,225,0.38)";
+    ctx.fillStyle = "rgba(213,255,0,0.52)";
     ctx.fillRect(boss.x + 5, boss.y + 5, boss.w - 10, boss.h - 10);
   }
   const weak = finalBossWeakRect(boss);
   if (weak) {
-    ctx.fillStyle = "#74c476";
-    ctx.strokeStyle = "#f4f2e6";
+    ctx.fillStyle = "#00ff6a";
+    ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
     ctx.fillRect(weak.x, weak.y, weak.w, weak.h);
     ctx.strokeRect(weak.x + 0.5, weak.y + 0.5, weak.w - 1, weak.h - 1);
@@ -339,23 +376,61 @@ function drawFinalBoss(ctx, boss, state) {
   const hp = Math.max(0, Math.min(maxHp, boss.hp ?? maxHp));
   ctx.fillStyle = "#151820";
   ctx.fillRect(boss.x, boss.y - 14, boss.w, 8);
-  ctx.fillStyle = phase2 ? "#9e7bd1" : "#d34b4b";
+  ctx.fillStyle = phase2 ? "#ff4fd8" : "#ff1744";
   ctx.fillRect(boss.x, boss.y - 14, boss.w * (hp / maxHp), 8);
-  drawFinalBossQuadrants(ctx, boss);
+  if (!phase2) drawFinalBossBodyQuadrants(ctx, boss);
   for (const warning of boss.lightningWarnings || []) {
-    ctx.strokeStyle = "#35f28a";
+    const pulse = 0.45 + 0.55 * Math.abs(Math.sin(performance.now() * 0.03));
+    ctx.strokeStyle = `rgba(0,255,106,${pulse})`;
     ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 2 + pulse * 3;
     ctx.strokeRect(warning.x - TILE / 2, warning.y - TILE / 2, TILE, TILE);
     ctx.setLineDash([]);
   }
   for (const line of boss.temporaryLightning || []) {
-    ctx.strokeStyle = "#35f28a";
+    ctx.strokeStyle = "#00ff6a";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(line.ax, line.ay);
     ctx.lineTo(line.bx, line.by);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+function drawFinalBossQuadrantFields(ctx, boss, state) {
+  if (!boss.quadrantBans?.length) return;
+  const colors = { red: "#ff1744", green: "#00e676", white: "#ffea00", black: "#7c4dff" };
+  const cx = boss.x + boss.w / 2;
+  const cy = boss.y + boss.h / 2;
+  const width = state.room?.width || state.room?.cols * TILE || ctx.canvas.width;
+  const height = state.room?.height || state.room?.rows * TILE || ctx.canvas.height;
+  const quadrants = [
+    { x: 0, y: 0, w: cx, h: cy },
+    { x: cx, y: 0, w: width - cx, h: cy },
+    { x: 0, y: cy, w: cx, h: height - cy },
+    { x: cx, y: cy, w: width - cx, h: height - cy },
+  ];
+  ctx.save();
+  for (let i = 0; i < quadrants.length; i += 1) {
+    const ban = boss.quadrantBans[i];
+    const q = quadrants[i];
+    if (!ban || q.w <= 0 || q.h <= 0) continue;
+    ctx.fillStyle = `${colors[ban] || "#ffffff"}2e`;
+    ctx.fillRect(q.x, q.y, q.w, q.h);
+    ctx.strokeStyle = `${colors[ban] || "#ffffff"}aa`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(q.x + 1, q.y + 1, q.w - 2, q.h - 2);
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.48)";
+  ctx.setLineDash([10, 8]);
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, height);
+  ctx.moveTo(0, cy);
+  ctx.lineTo(width, cy);
+  ctx.stroke();
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
@@ -368,8 +443,8 @@ function finalBossWeakRect(boss) {
   return { x: boss.x - size * 0.4, y: boss.y + boss.h / 2 - size / 2, w: size, h: size };
 }
 
-function drawFinalBossQuadrants(ctx, boss) {
-  const colors = { red: "#e84d4d", green: "#7fa083", white: "#f4f2e6", black: "#252632" };
+function drawFinalBossBodyQuadrants(ctx, boss) {
+  const colors = { red: "#ff1744", green: "#00e676", white: "#ffea00", black: "#7c4dff" };
   const quadrants = [
     { x: boss.x, y: boss.y, w: boss.w / 2, h: boss.h / 2 },
     { x: boss.x + boss.w / 2, y: boss.y, w: boss.w / 2, h: boss.h / 2 },
@@ -380,7 +455,7 @@ function drawFinalBossQuadrants(ctx, boss) {
     const ban = boss.quadrantBans?.[i];
     if (!ban) continue;
     const q = quadrants[i];
-    ctx.fillStyle = `${colors[ban] || "#ffffff"}55`;
+    ctx.fillStyle = `${colors[ban] || "#ffffff"}88`;
     ctx.fillRect(q.x + 4, q.y + 4, q.w - 8, q.h - 8);
     ctx.strokeStyle = colors[ban] || "#ffffff";
     ctx.strokeRect(q.x + 4.5, q.y + 4.5, q.w - 9, q.h - 9);
@@ -877,6 +952,7 @@ export function draw(ctx, state) {
     ctx.fillText(["→", "↓", "←", "↑"][state.worldRot], 24, 34);
   }
   drawGravityZoneTimer(ctx, state);
+  drawFinalBossForbiddenTimer(ctx, state);
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
   ctx.restore();
@@ -908,6 +984,24 @@ function drawGravityZoneTimer(ctx, state) {
   ctx.strokeRect(x - w / 2 + 0.5, y - 3.5, w - 1, 31);
   ctx.fillStyle = invincible > 0 ? "#f4c95d" : "#d7ecff";
   ctx.fillText(text, x, y + 3);
+  ctx.restore();
+}
+
+function drawFinalBossForbiddenTimer(ctx, state) {
+  if (!(state.finalBossForbiddenTimer > 0) || !state.finalBossForbiddenForm) return;
+  const timer = Math.max(0, state.finalBossForbiddenTimer);
+  const label = FORMS[state.finalBossForbiddenForm]?.name || state.finalBossForbiddenForm;
+  const cx = ctx.canvas.width / 2;
+  ctx.save();
+  ctx.fillStyle = "rgba(255,23,68,0.9)";
+  ctx.fillRect(cx - 150, 54, 300, 42);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - 149, 55, 298, 40);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 18px Microsoft YaHei, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${label}禁用：${timer.toFixed(1)}秒`, cx, 81);
   ctx.restore();
 }
 
@@ -1110,12 +1204,31 @@ function drawChoiceOverlay(ctx, state) {
   ctx.font = "700 22px Microsoft YaHei, sans-serif";
   ctx.textAlign = "center";
   for (const [id, text, x, y] of items) {
-    ctx.fillStyle = state.selectedForm === id ? FORMS[id].color : "#596372";
+    const blocked = state.finalBossBlockedForms?.has?.(id);
+    ctx.fillStyle = blocked ? "#2b2f38" : state.selectedForm === id ? FORMS[id].color : "#596372";
     ctx.beginPath();
     ctx.arc(x, y, 30, 0, Math.PI * 2);
     ctx.fill();
+    if (blocked) {
+      ctx.strokeStyle = "#ff1744";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x, y, 34, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 22, y + 22);
+      ctx.lineTo(x + 22, y - 22);
+      ctx.stroke();
+    }
     ctx.fillStyle = "#10141b";
     ctx.fillText(text, x, y + 8);
+  }
+  if (state.blockedFormTimer > 0 && state.blockedFormFeedback) {
+    ctx.fillStyle = "rgba(255,23,68,0.88)";
+    ctx.fillRect(cx - 130, cy - 142, 260, 34);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 16px Microsoft YaHei, sans-serif";
+    ctx.fillText(`${FORMS[state.blockedFormFeedback]?.name || ""} 禁用`, cx, cy - 119);
   }
   ctx.textAlign = "left";
 }

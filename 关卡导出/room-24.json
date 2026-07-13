@@ -1,0 +1,82 @@
+{
+  "room": 24,
+  "roomSize": 20,
+  "blocks": [
+    "####################",
+    "#..................#",
+    "#.................C#",
+    "#................CC#",
+    "#...............CCC#",
+    "#...A....A....ACCCC#",
+    "#.............CCCCC#",
+    "#............CCCCCC#",
+    "#...........CCCCCCC#",
+    "H...A....A.CCCACCCC#",
+    "H...........CCCCCCC.",
+    "#............CCCCCCF",
+    "#.............CCCCC#",
+    "#...A....A....ACCCC#",
+    "#...............CCC#",
+    "#................CC#",
+    "#.Y...............C#",
+    "#..................#",
+    "####################",
+    "####################"
+  ],
+  "surfacePlagues": [],
+  "controlBindings": [],
+  "lightningChains": [],
+  "lightningNodes": [],
+  "emitters": [
+    {
+      "x": 2,
+      "y": 16,
+      "dx": 1,
+      "dy": 0,
+      "directionMode": "facing",
+      "hazard": "spike",
+      "size": 0.25,
+      "period": 3,
+      "duty": 0.35,
+      "speed": 2,
+      "trackingTime": 0.5,
+      "path": [
+        {
+          "x": 2,
+          "y": 16
+        },
+        {
+          "x": 17,
+          "y": 16
+        },
+        {
+          "x": 17,
+          "y": 2
+        },
+        {
+          "x": 2,
+          "y": 2
+        },
+        {
+          "x": 2,
+          "y": 16
+        }
+      ],
+      "moveSpeed": 5
+    }
+  ],
+  "sequencers": [],
+  "targetDefaults": {},
+  "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
+  "spawn": {
+    "x": 612,
+    "y": 356
+  }
+}

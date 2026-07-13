@@ -38,6 +38,56 @@
       "x": 4,
       "y": 8,
       "face": 1
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "face": 1
+    },
+    {
+      "x": 4,
+      "y": 5,
+      "face": 1
+    },
+    {
+      "x": 4,
+      "y": 6,
+      "face": 1
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "face": 0
+    },
+    {
+      "x": 11,
+      "y": 5,
+      "face": 0
+    },
+    {
+      "x": 12,
+      "y": 5,
+      "face": 0
+    },
+    {
+      "x": 12,
+      "y": 5,
+      "face": 1
+    },
+    {
+      "x": 11,
+      "y": 6,
+      "face": 1
+    },
+    {
+      "x": 12,
+      "y": 6,
+      "face": 0
+    },
+    {
+      "x": 11,
+      "y": 7,
+      "face": 1
     }
   ],
   "controlBindings": [],
@@ -47,6 +97,13 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
     "x": 68,
     "y": 580

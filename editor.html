@@ -245,8 +245,8 @@
       { char: '-', name: '上平台低', category: '平台', color: '#758698', desc: '朝上的低位半砖平台' },
       { char: 'U', name: '易碎平台', category: '平台', color: '#9a8065', desc: '双向实体；站上2秒碎裂，8秒复原' },
       { char: 'V', name: '移动平台', category: '平台', color: '#7da7bd', desc: '拖动设置移动距离；可被触发器控制运动' },
-      { char: '1', name: '平台生成器', category: '机关', color: '#7da7bd', desc: '拖动框选区域，隐形生成下落平台' },
-      { char: '3', name: '尖刺生成器', category: '机关', color: '#b74a55', desc: '拖动框选区域，隐形生成下落尖刺格' },
+      { char: '1', name: '平台生成器', category: '机关', color: '#7da7bd', desc: '拖动框选区域，隐形生成指定方向平台' },
+      { char: '3', name: '尖刺生成器', category: '机关', color: '#b74a55', desc: '拖动框选区域，隐形生成指定方向尖刺格' },
       { char: 'L', name: '左平台', category: '平台', color: '#758698', desc: '朝左的半砖平台' },
       { char: 'J', name: '右平台', category: '平台', color: '#758698', desc: '朝右的半砖平台' },
       { char: '.', name: '空地', category: '平台', color: '#2a2e38', desc: '空气/可通行' },
@@ -258,6 +258,7 @@
       { char: 'Z', name: 'Boss', category: '危险', color: '#49364f', desc: '3x3悬浮Boss（字符为左上锚点）' },
       { char: '2', name: '掉落Boss', category: '危险', color: '#7b4a85', desc: '拖动框选预警掉落区域，生成10x10掉落Boss' },
       { char: '6', name: '路线Boss', category: '危险', color: '#59415f', desc: '点选移动路线，完成后生成8x8路线Boss' },
+      { char: '9', name: '最终Boss', category: '危险', color: '#6b3f73', desc: '点击放置8x8最终Boss' },
       { char: 'N', name: '高级敌人', category: '危险', color: '#7d3f7d', desc: '点选路径点，完成后设置大小和速度' },
       { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
       { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
@@ -1009,10 +1010,11 @@
     async function writeLevelFiles(payload, button) {
       const old = button?.textContent || '';
       try {
+        const exportPayload = await protectMultiRoomExport(payload);
         const response = await fetch('/api/export-levels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(exportPayload)
         });
         const result = await response.json();
         if (!result.ok) throw new Error(result.error || '导出失败');
@@ -1037,10 +1039,28 @@
       }
     }
 
-    function loadRoom(num) {
-      currentRoom = Math.max(1, Math.min(50, num));
-      document.getElementById('room-num').value = currentRoom;
-      const data = getRoomData();
+    async function protectMultiRoomExport(payload) {
+      const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+      if (rooms.length <= 1) return payload;
+      try {
+        const exported = await fetch('/api/exported-levels', { cache: 'no-store' }).then(item => item.json());
+        if (!exported.ok || !Array.isArray(exported.rooms)) return payload;
+        const exportedByRoom = new Map(exported.rooms.map(room => [Number(room.room ?? room.id), room]));
+        return {
+          ...payload,
+          rooms: rooms.map(room => {
+            const roomId = Number(room.room ?? room.id);
+            const existing = exportedByRoom.get(roomId);
+            if (existing && isDefaultRoomData(room) && !isDefaultRoomData(existing)) return existing;
+            return room;
+          })
+        };
+      } catch {
+        return payload;
+      }
+    }
+
+    function applyRoomData(data) {
       applyRoomSize(data.roomSize || roomSizeFromData(data));
       grid = normalizeGrid(data.blocks, roomSize);
       surfacePlagues = dedupeSurfacePlagues(data.surfacePlagues || []);
@@ -1066,6 +1086,22 @@
       pathDraft = null;
       spawn = data.spawn || defaultSpawn();
       render();
+    }
+
+    async function loadRoom(num) {
+      currentRoom = Math.max(1, Math.min(50, num));
+      const roomToLoad = currentRoom;
+      document.getElementById('room-num').value = currentRoom;
+      let data = getRoomData();
+      if (!localStorage.getItem(`room_${roomToLoad}`) || isDefaultRoomData(data)) {
+        const exported = await exportedRoomData(roomToLoad);
+        if (exported && !isDefaultRoomData(exported) && currentRoom === roomToLoad) {
+          localStorage.setItem(`room_${roomToLoad}`, JSON.stringify(exported));
+          data = getRoomData();
+        }
+      }
+      if (currentRoom !== roomToLoad) return;
+      applyRoomData(data);
     }
 
     function render() {
@@ -2553,7 +2589,8 @@
       }
       const isSpike = currentChar === '3';
       const interval = clampNumber(prompt(`${isSpike ? '尖刺' : '平台'}生成间隔（秒，0.15-10）`, '1.2'), 0.15, 10, 1.2);
-      const speed = clampNumber(prompt(`${isSpike ? '尖刺' : '平台'}下落速度（格/秒，0.1-10）`, '1.4'), 0.1, 10, 1.4);
+      const speed = clampNumber(prompt(`${isSpike ? '尖刺' : '平台'}移动速度（格/秒，0.1-10）`, '1.4'), 0.1, 10, 1.4);
+      const direction = parseGeneratorDirection(prompt('生成方向：下/上/左/右/左上/右上/左下/右下', '下'));
       const platformLength = isSpike ? 1 : clampNumber(prompt('每个平台长度（格，1-20）', '1'), 1, 20, 1);
       platformGenerators = platformGenerators.filter(item =>
         !(item.x === rect.x && item.y === rect.y && item.w === rect.w && item.h === rect.h)
@@ -2566,11 +2603,40 @@
         spawnKind: isSpike ? 'spike' : 'platform',
         interval,
         speed,
+        dirX: direction.x,
+        dirY: direction.y,
         platformLength,
       });
       platformGeneratorDrag = null;
       saveRoomData();
       render();
+    }
+
+    function parseGeneratorDirection(value) {
+      const key = String(value || '下').trim().toLowerCase();
+      const dirs = {
+        '下': { x: 0, y: 1 },
+        'down': { x: 0, y: 1 },
+        's': { x: 0, y: 1 },
+        '上': { x: 0, y: -1 },
+        'up': { x: 0, y: -1 },
+        'w': { x: 0, y: -1 },
+        '左': { x: -1, y: 0 },
+        'left': { x: -1, y: 0 },
+        'a': { x: -1, y: 0 },
+        '右': { x: 1, y: 0 },
+        'right': { x: 1, y: 0 },
+        'd': { x: 1, y: 0 },
+        '左上': { x: -1, y: -1 },
+        'upleft': { x: -1, y: -1 },
+        '左下': { x: -1, y: 1 },
+        'downleft': { x: -1, y: 1 },
+        '右上': { x: 1, y: -1 },
+        'upright': { x: 1, y: -1 },
+        '右下': { x: 1, y: 1 },
+        'downright': { x: 1, y: 1 },
+      };
+      return dirs[key] || { x: 0, y: 1 };
     }
 
     function finishGravityZonePlacement() {

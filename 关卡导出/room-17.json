@@ -1,0 +1,87 @@
+{
+    "room":  17,
+    "roomSize":  20,
+    "blocks":  [
+                   "####################",
+                   "#..................#",
+                   "#.C................#",
+                   "###................#",
+                   "#!!!...............#",
+                   "#........C.........#",
+                   "#........#.........#",
+                   "#.....A....A....A..#",
+                   "#..................#",
+                   "...................#",
+                   ".........A...A.....#",
+                   "#..................#",
+                   "#.F.............C..#",
+                   "#####...........#..#",
+                   "#..................#",
+                   "#..................#",
+                   "#O.................#",
+                   "#CCCCCCCCCCCCCCCCCC#",
+                   "#HHHHHHHHHHHHHHHHHH#",
+                   "#!!!#!!!#!!!#!!!#..#"
+               ],
+    "surfacePlagues":  [
+
+                       ],
+    "controlBindings":  [
+
+                        ],
+    "lightningChains":  [
+
+                        ],
+    "lightningNodes":  [
+
+                       ],
+    "emitters":  [
+                     {
+                         "x":  1,
+                         "y":  16,
+                         "dx":  1,
+                         "dy":  0,
+                         "directionMode":  "right",
+                         "hazard":  "spike",
+                         "size":  0.5,
+                         "period":  2,
+                         "duty":  0.8,
+                         "speed":  6,
+                         "trackingTime":  0
+                     }
+                 ],
+    "sequencers":  [
+
+                   ],
+    "targetDefaults":  {
+
+                       },
+    "enemyPatrols":  [
+
+                     ],
+    "advancedEnemies":  [
+
+                        ],
+    "movingPlatforms":  [
+
+                        ],
+    "platformGenerators":  [
+
+                           ],
+    "dropBosses":  [
+
+                   ],
+    "routeBosses":  [
+
+                    ],
+    "finalBosses":  [
+
+                    ],
+    "gravityZones":  [
+
+                     ],
+    "spawn":  {
+                  "x":  100,
+                  "y":  356
+              }
+}

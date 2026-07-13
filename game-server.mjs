@@ -23,6 +23,10 @@ function resolvePath(url) {
   return full.startsWith(root) ? full : null;
 }
 
+function readJsonFile(path) {
+  return JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
+}
+
 const server = createServer((req, res) => {
   if (req.method === "GET" && req.url === "/api/exported-levels") {
     const outDir = join(root, "关卡导出");
@@ -33,17 +37,17 @@ const server = createServer((req, res) => {
 
     try {
       if (existsSync(allPath)) {
-        payload = JSON.parse(readFileSync(allPath, "utf8"));
+        payload = readJsonFile(allPath);
       }
       if (existsSync(outDir)) {
         const roomsById = new Map((payload.rooms || []).map((room) => [Number(room.room ?? room.id), room]));
         for (const name of readdirSync(outDir).filter((entry) => /^room-\d+\.json$/i.test(entry))) {
-          const room = JSON.parse(readFileSync(join(outDir, name), "utf8"));
+          const room = readJsonFile(join(outDir, name));
           roomsById.set(Number(room.room ?? room.id), room);
         }
         payload.rooms = [...roomsById.values()].sort((a, b) => Number(a.room ?? a.id) - Number(b.room ?? b.id));
       }
-      if (existsSync(mapPath)) map = JSON.parse(readFileSync(mapPath, "utf8"));
+      if (existsSync(mapPath)) map = readJsonFile(mapPath);
       res.writeHead(200, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
@@ -75,7 +79,7 @@ const server = createServer((req, res) => {
         const allPath = join(outDir, "all-levels.json");
         let existing = { version: 1, cols: payload.cols || 20, rows: payload.rows || 20, rooms: [] };
         if (existsSync(allPath)) {
-          existing = JSON.parse(readFileSync(allPath, "utf8"));
+          existing = readJsonFile(allPath);
         }
         const roomsById = new Map((existing.rooms || []).map((room) => [Number(room.room ?? room.id), room]));
         for (const room of rooms) {
@@ -153,12 +157,12 @@ const server = createServer((req, res) => {
         if (existsSync(roomPath)) unlinkSync(roomPath);
 
         if (existsSync(allPath)) {
-          const payload = JSON.parse(readFileSync(allPath, "utf8"));
+          const payload = readJsonFile(allPath);
           payload.rooms = (payload.rooms || []).filter((room) => Number(room.room ?? room.id) !== roomId);
           writeFileSync(allPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
         }
         if (existsSync(mapPath)) {
-          const map = JSON.parse(readFileSync(mapPath, "utf8"));
+          const map = readJsonFile(mapPath);
           if (map.positions) delete map.positions[String(roomId)];
           writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`, "utf8");
         }

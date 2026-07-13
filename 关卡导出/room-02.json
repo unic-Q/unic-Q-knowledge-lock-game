@@ -2,7 +2,7 @@
   "room": 2,
   "roomSize": 20,
   "blocks": [
-    "#########!##########",
+    "#########.##########",
     "#..................#",
     "#..............#...#",
     "#.............##...#",
@@ -43,6 +43,21 @@
       "x": 3,
       "y": 8,
       "face": 1
+    },
+    {
+      "x": 3,
+      "y": 5,
+      "face": 1
+    },
+    {
+      "x": 3,
+      "y": 6,
+      "face": 1
+    },
+    {
+      "x": 3,
+      "y": 7,
+      "face": 1
     }
   ],
   "controlBindings": [],
@@ -52,8 +67,15 @@
   "sequencers": [],
   "targetDefaults": {},
   "enemyPatrols": [],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
   "spawn": {
-    "x": 36,
-    "y": 324
+    "x": 388,
+    "y": 132
   }
 }
