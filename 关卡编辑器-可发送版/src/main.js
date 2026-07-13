@@ -225,6 +225,7 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     movingPlatforms: Array.isArray(room?.movingPlatforms) ? room.movingPlatforms : [],
     platformGenerators: Array.isArray(room?.platformGenerators) ? room.platformGenerators : [],
     dropBosses: Array.isArray(room?.dropBosses) ? room.dropBosses : [],
+    routeBosses: Array.isArray(room?.routeBosses) ? room.routeBosses : [],
     gravityZones: Array.isArray(room?.gravityZones) ? room.gravityZones : [],
   };
 }
