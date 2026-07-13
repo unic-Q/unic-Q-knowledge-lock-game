@@ -1236,7 +1236,10 @@ function startRouteBossPhase(boss, phase) {
     boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.moveDuration || 15);
     seedRouteBossGravity(boss);
   }
-  else if (phase === "shoot" || phase === "darkShoot") boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.shootDuration || 15);
+  else if (phase === "shoot" || phase === "darkShoot") {
+    if (phase === "darkShoot") clearRouteBossGravity(boss);
+    boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.shootDuration || 15);
+  }
 }
 
 function finishRouteBossCycle(boss) {
@@ -1354,7 +1357,7 @@ function seedRouteBossGravity(boss) {
   const seed = Math.floor(Math.random() * 1000000);
   boss.gravitySeed = seed;
   for (const cell of cells) {
-    if (routeBossCellRoll(cell.x, cell.y, boss.index, seed) >= 0.5) continue;
+    if (routeBossCellRoll(cell.x, cell.y, boss.index, seed) >= 0.35) continue;
     const key = `routeBoss:${boss.index}:${cell.x},${cell.y}`;
     boss.tempGravityKeys.add(key);
     state.room.gravityZones.push({
