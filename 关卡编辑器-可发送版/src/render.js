@@ -314,6 +314,79 @@ function drawRouteBoss(ctx, boss) {
   }
 }
 
+function drawFinalBoss(ctx, boss, state) {
+  if (boss.defeated) return;
+  ctx.save();
+  const phase2 = boss.phase >= 2;
+  ctx.fillStyle = phase2 ? "#2f253b" : "#3d3048";
+  ctx.strokeStyle = phase2 ? "#9e7bd1" : "#f4c95d";
+  ctx.lineWidth = 4;
+  ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+  ctx.strokeRect(boss.x + 1, boss.y + 1, boss.w - 2, boss.h - 2);
+  if ((boss.plagueActiveTimer || 0) > 0) {
+    ctx.fillStyle = "rgba(235,247,225,0.38)";
+    ctx.fillRect(boss.x + 5, boss.y + 5, boss.w - 10, boss.h - 10);
+  }
+  const weak = finalBossWeakRect(boss);
+  if (weak) {
+    ctx.fillStyle = "#74c476";
+    ctx.strokeStyle = "#f4f2e6";
+    ctx.lineWidth = 2;
+    ctx.fillRect(weak.x, weak.y, weak.w, weak.h);
+    ctx.strokeRect(weak.x + 0.5, weak.y + 0.5, weak.w - 1, weak.h - 1);
+  }
+  const maxHp = Math.max(1, boss.maxHp || 28);
+  const hp = Math.max(0, Math.min(maxHp, boss.hp ?? maxHp));
+  ctx.fillStyle = "#151820";
+  ctx.fillRect(boss.x, boss.y - 14, boss.w, 8);
+  ctx.fillStyle = phase2 ? "#9e7bd1" : "#d34b4b";
+  ctx.fillRect(boss.x, boss.y - 14, boss.w * (hp / maxHp), 8);
+  drawFinalBossQuadrants(ctx, boss);
+  for (const warning of boss.lightningWarnings || []) {
+    ctx.strokeStyle = "#35f28a";
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(warning.x - TILE / 2, warning.y - TILE / 2, TILE, TILE);
+    ctx.setLineDash([]);
+  }
+  for (const line of boss.temporaryLightning || []) {
+    ctx.strokeStyle = "#35f28a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(line.ax, line.ay);
+    ctx.lineTo(line.bx, line.by);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function finalBossWeakRect(boss) {
+  const size = 22;
+  const side = boss.weakSide || "top";
+  if (side === "top") return { x: boss.x + boss.w / 2 - size / 2, y: boss.y - size * 0.4, w: size, h: size };
+  if (side === "right") return { x: boss.x + boss.w - size * 0.6, y: boss.y + boss.h / 2 - size / 2, w: size, h: size };
+  if (side === "bottom") return { x: boss.x + boss.w / 2 - size / 2, y: boss.y + boss.h - size * 0.6, w: size, h: size };
+  return { x: boss.x - size * 0.4, y: boss.y + boss.h / 2 - size / 2, w: size, h: size };
+}
+
+function drawFinalBossQuadrants(ctx, boss) {
+  const colors = { red: "#e84d4d", green: "#7fa083", white: "#f4f2e6", black: "#252632" };
+  const quadrants = [
+    { x: boss.x, y: boss.y, w: boss.w / 2, h: boss.h / 2 },
+    { x: boss.x + boss.w / 2, y: boss.y, w: boss.w / 2, h: boss.h / 2 },
+    { x: boss.x, y: boss.y + boss.h / 2, w: boss.w / 2, h: boss.h / 2 },
+    { x: boss.x + boss.w / 2, y: boss.y + boss.h / 2, w: boss.w / 2, h: boss.h / 2 },
+  ];
+  for (let i = 0; i < quadrants.length; i += 1) {
+    const ban = boss.quadrantBans?.[i];
+    if (!ban) continue;
+    const q = quadrants[i];
+    ctx.fillStyle = `${colors[ban] || "#ffffff"}55`;
+    ctx.fillRect(q.x + 4, q.y + 4, q.w - 8, q.h - 8);
+    ctx.strokeStyle = colors[ban] || "#ffffff";
+    ctx.strokeRect(q.x + 4.5, q.y + 4.5, q.w - 9, q.h - 9);
+  }
+}
+
 function drawSwitch(ctx, s) {
   ctx.fillStyle = s.pressed ? "#74c476" : "#d6c08a";
   ctx.fillRect(s.x, s.y, s.w, s.h);
@@ -657,6 +730,7 @@ export function draw(ctx, state) {
   for (const boss of room.bosses || []) drawBoss(ctx, transformedRect(state, boss));
   for (const boss of room.dropBosses || []) drawDropBoss(ctx, transformedRect(state, boss));
   for (const boss of room.routeBosses || []) drawRouteBoss(ctx, transformedRouteBoss(state, boss));
+  for (const boss of room.finalBosses || []) drawFinalBoss(ctx, transformedRect(state, boss), state);
   for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
   const lightningDisabled = Boolean(room.lightningDisabled);
   if (!lightningDisabled) {
@@ -794,6 +868,7 @@ export function draw(ctx, state) {
   ctx.restore();
 
   drawRouteBossDarkness(ctx, state, camera, ctx.canvas);
+  drawFinalBossFormFilter(ctx, state, camera, ctx.canvas);
   if (state.deathTimer <= 0) drawRedQte(ctx, player);
   ctx.restore();
   if (state.form === "black") {
@@ -851,6 +926,17 @@ function drawRouteBossDarkness(ctx, state, camera, canvas) {
   ctx.rect(camera.x, camera.y, viewW, viewH);
   ctx.arc(cx, cy, radius, 0, Math.PI * 2, true);
   ctx.fill("evenodd");
+  ctx.restore();
+}
+
+function drawFinalBossFormFilter(ctx, state, camera, canvas) {
+  const boss = state.room?.finalBosses?.find((item) => !item.defeated && item.phase >= 2 && item.lockedForm);
+  if (!boss) return;
+  const colors = { red: "232,77,77", green: "127,160,131", white: "244,242,230", black: "37,38,50" };
+  const rgb = colors[boss.lockedForm] || "244,201,93";
+  ctx.save();
+  ctx.fillStyle = `rgba(${rgb},0.18)`;
+  ctx.fillRect(camera.x, camera.y, canvas.width / camera.scale, canvas.height / camera.scale);
   ctx.restore();
 }
 

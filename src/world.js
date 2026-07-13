@@ -598,6 +598,38 @@ export function parseRoom(data) {
       parts: null,
     };
   });
+  const finalBosses = (data.finalBosses || []).map((item, index) => {
+    const w = Math.max(1, Number(item.w || 8)) * TILE;
+    const h = Math.max(1, Number(item.h || 8)) * TILE;
+    return {
+      index,
+      x: Number(item.x || Math.max(0, Math.floor(cols / 2 - 4))) * TILE,
+      y: Number(item.y || 4) * TILE,
+      w,
+      h,
+      hp: 28,
+      maxHp: 28,
+      phase: 1,
+      phaseHp: 12,
+      weakSide: "top",
+      weakPoint: null,
+      weakCooldown: 0,
+      quadrantBans: [],
+      activatedCount: 0,
+      skillTimer: 3,
+      skillMode: "pull",
+      colorLockTimer: 0,
+      lockedForm: null,
+      plagueTimer: 4,
+      plagueActiveTimer: 0,
+      lightningTimer: 5,
+      lightningWarnings: [],
+      temporaryLightning: [],
+      defeated: false,
+      targetKey: `finalBoss:${index}`,
+      enabled: true,
+    };
+  });
   const cracks = [];
   const hidden = [];
   const anchors = [];
@@ -844,6 +876,7 @@ export function parseRoom(data) {
     gravityZones,
     dropBosses,
     routeBosses,
+    finalBosses,
     fallingObjects,
     breakablePlatforms,
     cracks,

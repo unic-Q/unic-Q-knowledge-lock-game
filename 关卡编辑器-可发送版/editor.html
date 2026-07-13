@@ -294,6 +294,7 @@
     let platformGenerators = [];
     let dropBosses = [];
     let routeBosses = [];
+    let finalBosses = [];
     let gravityZones = [];
     let targetDefaults = {};
     let activeLightningChain = -1;
@@ -433,6 +434,7 @@
         platformGenerators: [],
         dropBosses: [],
         routeBosses: [],
+        finalBosses: [],
         gravityZones: [],
         roomSize: size,
         spawn: defaultSpawn(size)
@@ -564,6 +566,7 @@
             platformGenerators: parsed.platformGenerators || [],
             dropBosses: parsed.dropBosses || [],
             routeBosses: parsed.routeBosses || [],
+            finalBosses: parsed.finalBosses || [],
             gravityZones: parsed.gravityZones || [],
             spawn: parsed.spawn || defaultSpawn(size)
           };
@@ -595,6 +598,7 @@
         platformGenerators,
         dropBosses,
         routeBosses,
+        finalBosses,
         gravityZones,
         spawn
       };
@@ -623,6 +627,7 @@
         platformGenerators,
         dropBosses,
         routeBosses,
+        finalBosses,
         gravityZones,
         spawn
       };
@@ -644,6 +649,7 @@
         !(data?.platformGenerators || []).length &&
         !(data?.dropBosses || []).length &&
         !(data?.routeBosses || []).length &&
+        !(data?.finalBosses || []).length &&
         !(data?.gravityZones || []).length;
     }
 
@@ -671,6 +677,7 @@
           platformGenerators: found.platformGenerators || [],
           dropBosses: found.dropBosses || [],
           routeBosses: found.routeBosses || [],
+          finalBosses: found.finalBosses || [],
           gravityZones: found.gravityZones || [],
           spawn: found.spawn || defaultSpawn(size)
         };
@@ -706,6 +713,7 @@
             platformGenerators: roomData.platformGenerators || [],
             dropBosses: roomData.dropBosses || [],
             routeBosses: roomData.routeBosses || [],
+            finalBosses: roomData.finalBosses || [],
             gravityZones: roomData.gravityZones || [],
             spawn: roomData.spawn || defaultSpawn(size)
           }));
@@ -749,6 +757,7 @@
             platformGenerators: target.platformGenerators || [],
             dropBosses: target.dropBosses || [],
             routeBosses: target.routeBosses || [],
+            finalBosses: target.finalBosses || [],
             gravityZones: target.gravityZones || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
@@ -779,6 +788,7 @@
           platformGenerators: parsed.platformGenerators || [],
           dropBosses: parsed.dropBosses || [],
           routeBosses: parsed.routeBosses || [],
+          finalBosses: parsed.finalBosses || [],
           gravityZones: parsed.gravityZones || [],
           spawn: parsed.spawn || defaultSpawn(size)
         };
@@ -799,6 +809,7 @@
         platformGenerators: data.platformGenerators || [],
         dropBosses: data.dropBosses || [],
         routeBosses: data.routeBosses || [],
+        finalBosses: data.finalBosses || [],
         gravityZones: data.gravityZones || [],
         spawn: data.spawn
       };
@@ -978,6 +989,7 @@
           platformGenerators: data.platformGenerators || [],
           dropBosses: data.dropBosses || [],
           routeBosses: data.routeBosses || [],
+          finalBosses: data.finalBosses || [],
           gravityZones: data.gravityZones || [],
         };
       });
@@ -1044,6 +1056,7 @@
       platformGenerators = data.platformGenerators || [];
       dropBosses = data.dropBosses || [];
       routeBosses = data.routeBosses || [];
+      finalBosses = data.finalBosses || [];
       gravityZones = data.gravityZones || [];
       pendingControlTargets = [];
       enemyDrag = null;
@@ -1567,6 +1580,15 @@
         ctx.fillRect(x, y, w * TILE, h * TILE);
         ctx.strokeRect(x + 0.5, y + 0.5, w * TILE - 1, h * TILE - 1);
       }
+      for (const boss of finalBosses) {
+        const w = Number(boss.w || 8);
+        const h = Number(boss.h || 8);
+        ctx.fillStyle = 'rgba(61,48,72,0.48)';
+        ctx.strokeStyle = '#f4c95d';
+        ctx.lineWidth = 3;
+        ctx.fillRect(boss.x * TILE, boss.y * TILE, w * TILE, h * TILE);
+        ctx.strokeRect(boss.x * TILE + 0.5, boss.y * TILE + 0.5, w * TILE - 1, h * TILE - 1);
+      }
       if (platformGeneratorDrag) drawDragRect(platformGeneratorDrag, '#7da7bd');
       if (gravityZoneDrag) drawDragRect(gravityZoneDrag, '#6db7ff');
       for (const seq of sequencers) {
@@ -1621,6 +1643,7 @@
       if (target.type === 'platformGenerator') return `platformGenerator:${target.index}`;
       if (target.type === 'dropBoss') return `dropBoss:${target.index}`;
       if (target.type === 'routeBoss') return `routeBoss:${target.index}`;
+      if (target.type === 'finalBoss') return `finalBoss:${target.index}`;
       return `cell:${target.x},${target.y}`;
     }
 
@@ -1652,6 +1675,12 @@
           y >= first.y - h / 2 && y < first.y + h / 2;
       });
       if (routeBossIndex >= 0) return { type: 'routeBoss', index: routeBossIndex };
+      const finalBossIndex = finalBosses.findIndex(item => {
+        const w = Number(item.w || 8);
+        const h = Number(item.h || 8);
+        return x >= item.x && x < item.x + w && y >= item.y && y < item.y + h;
+      });
+      if (finalBossIndex >= 0) return { type: 'finalBoss', index: finalBossIndex };
       const enemyIndex = enemyTargetIndexAt(x, y);
       if (enemyIndex >= 0) return { type: 'enemy', index: enemyIndex };
       return null;
@@ -2590,6 +2619,18 @@
       render();
     }
 
+    function placeFinalBossAt(cell) {
+      const bossW = 8;
+      const bossH = 8;
+      const bossX = Math.max(0, Math.min(COLS - bossW, cell.x));
+      const bossY = Math.max(0, Math.min(ROWS - bossH, cell.y));
+      finalBosses = finalBosses.filter(item => item.x !== bossX || item.y !== bossY);
+      finalBosses.push({ x: bossX, y: bossY, w: bossW, h: bossH });
+      grid[bossY][bossX] = '9';
+      saveRoomData();
+      render();
+    }
+
     function dropBossPreviewZone(boss) {
       const x = Math.max(0, Math.min(COLS - 1, Math.floor(boss.x || 0)));
       const y = Math.max(0, Math.min(ROWS - 1, Math.floor((boss.y || 0) + (boss.h || 10))));
@@ -2904,13 +2945,24 @@
         }
         return !hit;
       });
+      const removedFinalBossKeys = [];
+      finalBosses = finalBosses.filter((item, index) => {
+        const w = Number(item.w || 8);
+        const h = Number(item.h || 8);
+        const hit = x >= item.x && x < item.x + w && y >= item.y && y < item.y + h;
+        if (hit) {
+          removed = true;
+          removedFinalBossKeys.push(`finalBoss:${index}`);
+        }
+        return !hit;
+      });
       gravityZones = gravityZones.filter((item) => {
         const hit = x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h;
         if (hit) removed = true;
         return !hit;
       });
       if (!removed) return false;
-      const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys, ...removedRouteBossKeys]);
+      const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys, ...removedRouteBossKeys, ...removedFinalBossKeys]);
       controlBindings = controlBindings
         .map(binding => ({
           ...binding,
@@ -3058,6 +3110,11 @@
       }
       if (editorMode === 'tile' && currentChar === '2' && e.button === 0) {
         placeDropBossAt(getCell(e));
+        isPainting = false;
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === '9' && e.button === 0) {
+        placeFinalBossAt(getCell(e));
         isPainting = false;
         return;
       }
@@ -3219,6 +3276,7 @@
       platformGenerators = [];
       dropBosses = [];
       routeBosses = [];
+      finalBosses = [];
       gravityZones = [];
       pathDraft = null;
       pendingControlTargets = [];
@@ -3326,6 +3384,7 @@
         platformGenerators = [];
         dropBosses = [];
         routeBosses = [];
+        finalBosses = [];
         pathDraft = null;
         pendingControlTargets = [];
         spawn = defaultSpawn();
@@ -3358,6 +3417,7 @@
             platformGenerators: target.platformGenerators || [],
             dropBosses: target.dropBosses || [],
             routeBosses: target.routeBosses || [],
+            finalBosses: target.finalBosses || [],
             gravityZones: target.gravityZones || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
@@ -3388,6 +3448,7 @@
         platformGenerators: roomData.platformGenerators || [],
         dropBosses: roomData.dropBosses || [],
         routeBosses: roomData.routeBosses || [],
+        finalBosses: roomData.finalBosses || [],
         gravityZones: roomData.gravityZones || [],
         playtestLoadout: loadout
       };

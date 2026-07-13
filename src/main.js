@@ -226,6 +226,7 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     platformGenerators: Array.isArray(room?.platformGenerators) ? room.platformGenerators : [],
     dropBosses: Array.isArray(room?.dropBosses) ? room.dropBosses : [],
     routeBosses: Array.isArray(room?.routeBosses) ? room.routeBosses : [],
+    finalBosses: Array.isArray(room?.finalBosses) ? room.finalBosses : [],
     gravityZones: Array.isArray(room?.gravityZones) ? room.gravityZones : [],
   };
 }
@@ -426,6 +427,7 @@ function setupEditorWorldPlaytest() {
 function switchForm(next) {
   if (!state.helmetOwned) return;
   if (!state.unlockedForms.has(next)) return;
+  if (isFinalBossFormBlocked(next)) return;
   if (state.form === "none" && next === "none") return;
   if (state.form !== "none" && next === "none") return;
   const wasWhite = state.form === "white";
@@ -697,6 +699,7 @@ function update(dt) {
 
   updateBoss(dt);
   updateRouteBosses(dt);
+  updateFinalBosses(dt);
   handleSwitches(dt);
   updatePlatformGenerators(dt);
   updateDropBosses(dt);
@@ -932,6 +935,13 @@ function handleHazards() {
     if (protectSideHazard(player, segmentHazardSide(player, hazard.a, hazard.b, 10))) continue;
     if (!surviveHazard(player)) return;
   }
+  for (const boss of room.finalBosses || []) {
+    if (boss.defeated) continue;
+    for (const line of boss.temporaryLightning || []) {
+      if (!rectTouchesSegment(player, { x: line.ax, y: line.ay }, { x: line.bx, y: line.by }, 3)) continue;
+      if (!surviveHazard(player)) return;
+    }
+  }
   for (const object of room.fallingObjects || []) {
     if (object.dead) continue;
     const objectRect = transformedRect(state, object);
@@ -994,7 +1004,8 @@ function applyBossRoomProgress(respawning = false) {
   const hasBoss = Boolean(room.bosses?.length);
   const hasDropBoss = Boolean(room.dropBosses?.length);
   const hasRouteBoss = Boolean(room.routeBosses?.length);
-  if (!hasBoss && !hasDropBoss && !hasRouteBoss) return;
+  const hasFinalBoss = Boolean(room.finalBosses?.length);
+  if (!hasBoss && !hasDropBoss && !hasRouteBoss && !hasFinalBoss) return;
   const defeated = state.defeatedBossRooms.has(room.id);
   const cleared = state.clearedBossRooms.has(room.id);
   if (hasBoss && defeated) {
@@ -1020,6 +1031,14 @@ function applyBossRoomProgress(respawning = false) {
       boss.enabled = false;
       boss.warningRects = [];
       clearRouteBossGravity(boss);
+    }
+  }
+  if (hasFinalBoss && defeated) {
+    for (const boss of room.finalBosses) {
+      boss.defeated = true;
+      boss.enabled = false;
+      boss.temporaryLightning = [];
+      boss.lightningWarnings = [];
     }
   }
   room.bossDefeated = defeated;
@@ -1477,6 +1496,236 @@ function fireRouteBossProjectile(boss, actor, x, y) {
     source: "routeBoss",
     sourceBossIndex: boss.index,
   });
+}
+
+function updateFinalBosses(dt) {
+  const { room, player } = state;
+  for (const boss of room.finalBosses || []) {
+    if (boss.defeated || boss.enabled === false) continue;
+    initializeFinalBoss(boss);
+    boss.weakCooldown = Math.max(0, (boss.weakCooldown || 0) - dt);
+    boss.skillTimer -= dt;
+    boss.plagueTimer -= dt;
+    boss.plagueActiveTimer = Math.max(0, (boss.plagueActiveTimer || 0) - dt);
+    boss.lightningTimer -= dt;
+    if (boss.phase >= 2) updateFinalBossColorLock(boss, dt);
+    if (boss.skillTimer <= 0) {
+      finalBossPushPull(boss, boss.skillMode === "pull" ? "pull" : "push");
+      boss.skillMode = boss.skillMode === "pull" ? "push" : "pull";
+      boss.skillTimer = 6;
+    }
+    if (boss.phase >= 2 && boss.plagueTimer <= 0) {
+      boss.plagueActiveTimer = 3.5;
+      boss.plagueTimer = 8;
+    }
+    if (boss.phase >= 2 && boss.lightningTimer <= 0) {
+      queueFinalBossLightning(boss);
+      boss.lightningTimer = 7;
+    }
+    updateFinalBossLightning(boss, dt);
+    if (state.form !== "none" && finalBossQuadrantBan(boss, player) === state.form) {
+      respawn("finalBossColorBan");
+      return;
+    }
+    if (boss.phase >= 2 && boss.lockedForm && state.form !== boss.lockedForm && state.unlockedForms.has(boss.lockedForm)) {
+      forceFinalBossForm(boss.lockedForm);
+    }
+    const weak = finalBossWeakRect(boss);
+    boss.weakPoint = weak;
+    if (weak && boss.weakCooldown <= 0 && rectsOverlap(player, weak)) hitFinalBoss(boss);
+    if (boss.plagueActiveTimer > 0 && state.form !== "white" && rectsOverlap(player, transformedRect(state, boss))) {
+      if (!surviveHazard(player)) return;
+    }
+  }
+}
+
+function initializeFinalBoss(boss) {
+  if (boss.initialized) return;
+  boss.initialized = true;
+  boss.hp = boss.maxHp || 28;
+  boss.phase = 1;
+  boss.phaseHp = 12;
+  boss.weakSide = randomFinalBossSide();
+  boss.quadrantBans = randomFinalBossQuadrantBans();
+  boss.activatedKeys = new Set();
+  boss.activatableKeys = finalBossActivatableKeys(boss);
+  boss.colorLockTimer = 0;
+  boss.lockedForm = null;
+}
+
+function hitFinalBoss(boss) {
+  boss.hp = Math.max(0, boss.hp - 1);
+  boss.phaseHp -= 1;
+  boss.weakCooldown = 0.6;
+  boss.weakSide = randomFinalBossSide();
+  boss.quadrantBans = randomFinalBossQuadrantBans();
+  activateNextFinalBossMechanism(boss);
+  state.shake = Math.max(state.shake, 8);
+  if (boss.phase === 1 && boss.phaseHp <= 0) {
+    boss.phase = 2;
+    boss.phaseHp = 16;
+    boss.colorLockTimer = 0;
+    updateFinalBossColorLock(boss, 0);
+  }
+  if (boss.hp <= 0) {
+    boss.defeated = true;
+    boss.enabled = false;
+    boss.temporaryLightning = [];
+    boss.lightningWarnings = [];
+    state.defeatedBossRooms.add(state.room.id);
+    state.room.bossDefeated = true;
+  }
+}
+
+function randomFinalBossSide() {
+  return ["top", "right", "bottom", "left"][Math.floor(Math.random() * 4)];
+}
+
+function randomFinalBossQuadrantBans() {
+  const forms = ["red", "green", "white", "black"];
+  return Array.from({ length: 4 }, () => forms[Math.floor(Math.random() * forms.length)]);
+}
+
+function finalBossWeakRect(boss) {
+  const size = 22;
+  const side = boss.weakSide || "top";
+  if (side === "top") return { x: boss.x + boss.w / 2 - size / 2, y: boss.y - size * 0.4, w: size, h: size };
+  if (side === "right") return { x: boss.x + boss.w - size * 0.6, y: boss.y + boss.h / 2 - size / 2, w: size, h: size };
+  if (side === "bottom") return { x: boss.x + boss.w / 2 - size / 2, y: boss.y + boss.h - size * 0.6, w: size, h: size };
+  return { x: boss.x - size * 0.4, y: boss.y + boss.h / 2 - size / 2, w: size, h: size };
+}
+
+function finalBossQuadrantBan(boss, player) {
+  if (!boss.quadrantBans?.length) return null;
+  const px = player.x + player.w / 2;
+  const py = player.y + player.h / 2;
+  const right = px >= boss.x + boss.w / 2;
+  const bottom = py >= boss.y + boss.h / 2;
+  const index = bottom ? (right ? 3 : 2) : (right ? 1 : 0);
+  return boss.quadrantBans[index] || null;
+}
+
+function isFinalBossFormBlocked(form) {
+  if (!form || form === "none") return false;
+  const boss = (state.room?.finalBosses || []).find((item) => !item.defeated && item.enabled !== false);
+  if (!boss) return false;
+  if (boss.phase >= 2 && boss.lockedForm && boss.lockedForm !== form) return true;
+  return finalBossQuadrantBan(boss, state.player) === form;
+}
+
+function finalBossActivatableKeys(boss) {
+  const keys = [];
+  const area = finalBossInfluenceRect(boss);
+  const add = (key, rect) => {
+    if (rectsOverlap(area, rect) && !keys.includes(key)) keys.push(key);
+  };
+  for (const h of state.room.hazards || []) add(h.targetKey || `hazard:${h.x},${h.y}`, h);
+  for (const e of state.room.emitters || []) add(e.targetKey || `emitter:${e.index}`, e);
+  for (const g of state.room.platformGenerators || []) add(g.targetKey || `platformGenerator:${g.index}`, g);
+  for (const s of state.room.lightningSegments || []) {
+    const rect = {
+      x: Math.min(s.ax, s.bx),
+      y: Math.min(s.ay, s.by),
+      w: Math.abs(s.ax - s.bx) || TILE,
+      h: Math.abs(s.ay - s.by) || TILE,
+    };
+    add(s.targetKey, rect);
+  }
+  return keys;
+}
+
+function activateNextFinalBossMechanism(boss) {
+  boss.activatableKeys ||= finalBossActivatableKeys(boss);
+  boss.activatedKeys ||= new Set();
+  const key = boss.activatableKeys.find((item) => !boss.activatedKeys.has(item));
+  if (!key) return;
+  boss.activatedKeys.add(key);
+  setFinalBossMechanismEnabled(key, true);
+}
+
+function setFinalBossMechanismEnabled(key, enabled) {
+  for (const h of state.room.hazards || []) if ((h.targetKey || `hazard:${h.x},${h.y}`) === key) h.disabled = !enabled;
+  for (const e of state.room.emitters || []) if ((e.targetKey || `emitter:${e.index}`) === key) e.disabled = !enabled;
+  for (const g of state.room.platformGenerators || []) if ((g.targetKey || `platformGenerator:${g.index}`) === key) g.enabled = enabled;
+  for (const s of state.room.lightningSegments || []) if (s.targetKey === key) s.disabled = !enabled;
+}
+
+function finalBossInfluenceRect(boss) {
+  const pad = TILE * 6;
+  return { x: boss.x - pad, y: boss.y - pad, w: boss.w + pad * 2, h: boss.h + pad * 2 };
+}
+
+function finalBossPushPull(boss, mode) {
+  const area = finalBossInfluenceRect(boss);
+  const cx = boss.x + boss.w / 2;
+  const cy = boss.y + boss.h / 2;
+  const objects = [
+    ...(state.room.hazards || []),
+    ...(state.room.emitters || []),
+    ...(state.room.platformGenerators || []),
+  ];
+  for (const object of objects) {
+    if (!rectsOverlap(area, object)) continue;
+    const ox = object.x + object.w / 2;
+    const oy = object.y + object.h / 2;
+    let dx = ox - cx;
+    let dy = oy - cy;
+    const length = Math.hypot(dx, dy) || 1;
+    const sign = mode === "pull" ? -1 : 1;
+    object.x += dx / length * TILE * sign;
+    object.y += dy / length * TILE * sign;
+    object.x = Math.max(0, Math.min(state.room.width - object.w, object.x));
+    object.y = Math.max(0, Math.min(state.room.height - object.h, object.y));
+  }
+}
+
+function updateFinalBossColorLock(boss, dt) {
+  boss.colorLockTimer -= dt;
+  if (boss.colorLockTimer > 0 && boss.lockedForm) return;
+  const unlocked = ["red", "green", "white", "black"].filter((form) => state.unlockedForms.has(form));
+  boss.lockedForm = unlocked.length ? unlocked[Math.floor(Math.random() * unlocked.length)] : null;
+  boss.colorLockTimer = 15;
+}
+
+function forceFinalBossForm(form) {
+  if (!state.unlockedForms.has(form)) return;
+  state.form = form;
+  state.player.redQte = null;
+  state.player.redDash = null;
+  state.player.hook = null;
+  updateHud();
+}
+
+function queueFinalBossLightning(boss) {
+  boss.lightningWarnings ||= [];
+  const count = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i += 1) {
+    boss.lightningWarnings.push({
+      x: Math.floor(Math.random() * Math.max(1, state.room.cols)) * TILE + TILE / 2,
+      y: Math.floor(Math.random() * Math.max(1, state.room.rows)) * TILE + TILE / 2,
+      timer: 1.2,
+    });
+  }
+}
+
+function updateFinalBossLightning(boss, dt) {
+  boss.temporaryLightning ||= [];
+  boss.lightningWarnings ||= [];
+  for (const warning of boss.lightningWarnings) {
+    warning.timer -= dt;
+    if (warning.timer <= 0) {
+      boss.temporaryLightning.push({
+        ax: warning.x,
+        ay: Math.max(0, warning.y - TILE * 1.5),
+        bx: warning.x,
+        by: Math.min(state.room.height, warning.y + TILE * 1.5),
+        life: 4,
+      });
+    }
+  }
+  boss.lightningWarnings = boss.lightningWarnings.filter((warning) => warning.timer > 0);
+  for (const line of boss.temporaryLightning) line.life -= dt;
+  boss.temporaryLightning = boss.temporaryLightning.filter((line) => line.life > 0);
 }
 
 function hitDropBoss(boss) {
@@ -2227,6 +2476,19 @@ function handleSwitches(dt = 0) {
   for (const boss of room.routeBosses || []) {
     boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
   }
+  for (const boss of room.finalBosses || []) {
+    boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
+  }
+  applyFinalBossMechanismStates(room);
+}
+
+function applyFinalBossMechanismStates(room) {
+  for (const boss of room.finalBosses || []) {
+    if (boss.defeated || boss.enabled === false || !boss.initialized) continue;
+    boss.activatableKeys ||= finalBossActivatableKeys(boss);
+    boss.activatedKeys ||= new Set();
+    for (const key of boss.activatableKeys) setFinalBossMechanismEnabled(key, boss.activatedKeys.has(key));
+  }
 }
 
 function isDropBossSwitchLocked(room) {
@@ -2249,6 +2511,7 @@ function targetKeyForControlTarget(target) {
   if (target.type === "platformGenerator") return `platformGenerator:${target.index}`;
   if (target.type === "dropBoss") return `dropBoss:${target.index}`;
   if (target.type === "routeBoss") return `routeBoss:${target.index}`;
+  if (target.type === "finalBoss") return `finalBoss:${target.index}`;
   return `cell:${target.x},${target.y}`;
 }
 
