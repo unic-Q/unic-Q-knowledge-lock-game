@@ -14,6 +14,7 @@ import {
 
 export function updateNone(state, input, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, GRAVITY);
   player.rollCooldown = Math.max(0, player.rollCooldown - dt);
   player.rollTimer = Math.max(0, player.rollTimer - dt);
   player.sideHazardGrace = Math.max(0, player.sideHazardGrace - dt);
@@ -64,11 +65,12 @@ export function updateNone(state, input, dt) {
     player.onGround = false;
   }
   if (input.down) player.dropTimer = 0.18;
-  player.vy += GRAVITY * dt;
+  player.vy += gravity * dt;
 }
 
 export function updateWhite(state, input, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, GRAVITY);
   const hadHook = Boolean(player.hook);
   if (updateWhiteHookPull(state, input.upHeld, dt)) return;
   player.whiteTurnCooldown = Math.max(0, (player.whiteTurnCooldown || 0) - dt);
@@ -90,7 +92,7 @@ export function updateWhite(state, input, dt) {
     }
   } else {
     player.whiteSurface = null;
-    player.vy += GRAVITY * dt;
+    player.vy += gravity * dt;
     if (input.left) {
       player.vx = -MOVE * 0.4;
       player.facing = -1;
@@ -426,6 +428,7 @@ function contactInterval(player, surface) {
 
 function updateWhiteHookPull(state, upHeld, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, GRAVITY);
   if (!player.hook) return false;
   if (player.hookTime <= 0) {
     player.hook = null;
@@ -455,7 +458,7 @@ function updateWhiteHookPull(state, upHeld, dt) {
 
   if (!upHeld) {
     player.vx = player.hook.vx || 0;
-    player.vy = (player.hook.vy || 0) + GRAVITY * dt;
+    player.vy = (player.hook.vy || 0) + gravity * dt;
     player.whiteSurface = null;
     player.whiteDetach = 0.16;
     player.hook = null;
@@ -692,6 +695,7 @@ function attachPlayerToHookSurface(player) {
 
 export function updateRed(state, input, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, GRAVITY);
   if (player.redDash) {
     player.redDash.t = Math.min(RED_DASH_TIME, player.redDash.t + dt);
     const p = player.redDash.t / RED_DASH_TIME;
@@ -700,7 +704,7 @@ export function updateRed(state, input, dt) {
     player.redDash.lastEase = eased;
     player.vx = player.redDash.dx * step / dt;
     player.vy = player.redDash.dy * step / dt + player.redDash.gravityVy;
-    player.redDash.gravityVy += GRAVITY * RED_AIR_GRAVITY_SCALE * dt;
+    player.redDash.gravityVy += gravity * RED_AIR_GRAVITY_SCALE * dt;
     if (player.redDash.t >= RED_DASH_TIME) player.redDash = null;
     return;
   }
@@ -708,14 +712,14 @@ export function updateRed(state, input, dt) {
   if (player.redQte) {
     player.redQte.t += dt;
     player.vx = 0;
-    player.vy += GRAVITY * RED_AIR_GRAVITY_SCALE * dt;
+    player.vy += gravity * RED_AIR_GRAVITY_SCALE * dt;
     if (player.redQte.t > RED_QTE_TIME * 1.2) {
       redBurnout(state);
       return;
     }
   } else {
     player.vx *= 0.82;
-    player.vy += GRAVITY * dt;
+    player.vy += gravity * dt;
   }
 
   const dir = input.leftShot ? [-1, 0, "left"] :
@@ -788,6 +792,7 @@ function breakCracks(state, radius) {
 
 export function updateGreen(state, input, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, GREEN_GRAVITY);
   if (input.left) {
     player.vx = -GREEN_MOVE;
     player.facing = -1;
@@ -825,7 +830,7 @@ export function updateGreen(state, input, dt) {
   if (player.greenAfterimage) {
     player.vy = 0;
   } else {
-    player.vy += GREEN_GRAVITY * dt;
+    player.vy += gravity * dt;
   }
 }
 
@@ -835,6 +840,7 @@ function canPlaceGreenGrave(player, grave) {
 
 export function updateBlack(state, input, dt) {
   const { player } = state;
+  const gravity = scaledGravity(state, BLACK_GRAVITY);
   const didRotate = input.leftShot || input.rightShot;
   if (input.leftShot) rotateBlackWorld(state, 3);
   if (input.rightShot) rotateBlackWorld(state, 1);
@@ -844,8 +850,12 @@ export function updateBlack(state, input, dt) {
     player.coyote = 0;
   }
   player.vx *= 0.6;
-  if (!didRotate) player.vy += BLACK_GRAVITY * dt;
+  if (!didRotate) player.vy += gravity * dt;
   erodeBelow(state, dt * (input.downHeld ? ERODE_FAST : ERODE_RATE));
+}
+
+function scaledGravity(state, baseGravity) {
+  return baseGravity * (state.gravityScale || 1);
 }
 
 function rotateBlackWorld(state, delta) {

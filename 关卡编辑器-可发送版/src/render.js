@@ -580,6 +580,15 @@ export function draw(ctx, state) {
     const r = transformedRect(state, b);
     if (!rectsOverlap(player, r)) drawRect(ctx, r, "#607487", "#314252");
   }
+  for (const zone of room.gravityZones || []) {
+    const r = transformedRect(state, zone);
+    ctx.fillStyle = "rgba(109, 183, 255, 0.16)";
+    ctx.strokeStyle = "rgba(109, 183, 255, 0.55)";
+    ctx.setLineDash([8, 5]);
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    ctx.setLineDash([]);
+  }
   for (const b of room.breakablePlatforms || []) {
     if (b.broken) continue;
     const r = transformedRect(state, b);

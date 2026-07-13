@@ -520,6 +520,12 @@ export function parseRoom(data) {
     enabled: true,
     targetKey: `platformGenerator:${index}`,
   }));
+  const gravityZones = (data.gravityZones || []).map((item) => ({
+    x: Number(item.x || 0) * TILE,
+    y: Number(item.y || 0) * TILE,
+    w: Math.max(1, Number(item.w || 1)) * TILE,
+    h: Math.max(1, Number(item.h || 1)) * TILE,
+  }));
   const dropBosses = (data.dropBosses || []).map((item, index) => {
     const w = Math.max(1, Number(item.w || 10)) * TILE;
     const h = Math.max(1, Number(item.h || 10)) * TILE;
@@ -797,6 +803,7 @@ export function parseRoom(data) {
     platforms: platforms.concat(movingPlatforms),
     movingPlatforms,
     platformGenerators,
+    gravityZones,
     dropBosses,
     fallingObjects,
     breakablePlatforms,

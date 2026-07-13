@@ -55,6 +55,8 @@ const state = {
   roomIndexById: new Map(worldRooms.map((room, index) => [room.id, index])),
   deathTimer: 0,
   deathReason: null,
+  gravityScale: 1,
+  wasInGravityZone: false,
 };
 
 function logEvent(type, data = {}) {
@@ -104,6 +106,8 @@ function loadRoom(index, spawn) {
   state.greenAfterimageMemory = false;
   state.helmetHeld = 0;
   state.choosing = false;
+  state.gravityScale = 1;
+  state.wasInGravityZone = false;
   updateHud();
 }
 
@@ -215,6 +219,7 @@ function normalizePlaytestRoom(room, fallbackId = 1) {
     movingPlatforms: Array.isArray(room?.movingPlatforms) ? room.movingPlatforms : [],
     platformGenerators: Array.isArray(room?.platformGenerators) ? room.platformGenerators : [],
     dropBosses: Array.isArray(room?.dropBosses) ? room.dropBosses : [],
+    gravityZones: Array.isArray(room?.gravityZones) ? room.gravityZones : [],
   };
 }
 
@@ -297,6 +302,8 @@ function finishRespawn(reason = "unknown") {
   state.player = makePlayer(state.checkpoint.x, state.checkpoint.y);
   state.worldRot = 0;
   state.helmetHeld = 0;
+  state.gravityScale = 1;
+  state.wasInGravityZone = false;
   state.choosing = false;
   updateHud();
 }
@@ -665,10 +672,11 @@ function update(dt) {
   player.stun = Math.max(0, player.stun - dt);
   player.plagueGrace = Math.max(0, player.plagueGrace - dt);
   player.onGround = false;
+  updateGravityZones();
 
   if (player.stun > 0) {
     player.vx *= 0.85;
-    player.vy += GRAVITY * dt;
+    player.vy += GRAVITY * state.gravityScale * dt;
   } else if (state.form === "none") updateNone(state, input, dt);
   else if (state.form === "white") updateWhite(state, input, dt);
   else if (state.form === "red") updateRed(state, input, dt);
@@ -932,6 +940,17 @@ function projectileIgnoredByForm(projectile) {
   if (projectile.hazard === "plague") return state.form === "white";
   if (projectile.hazard === "lightning") return state.form === "green";
   return false;
+}
+
+function updateGravityZones() {
+  const { room, player } = state;
+  const inZone = (room.gravityZones || []).some((zone) => rectsOverlap(player, zone));
+  state.gravityScale = inZone ? 0.1 : 1;
+  if (inZone !== state.wasInGravityZone) {
+    player.jumps = 0;
+    player.coyote = Math.max(player.coyote || 0, 0.08);
+    state.wasInGravityZone = inZone;
+  }
 }
 
 function applyBossRoomProgress(respawning = false) {
