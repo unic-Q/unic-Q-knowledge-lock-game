@@ -1274,17 +1274,18 @@ function splitRouteBoss(boss) {
   const partW = Math.max(TILE, boss.w / 2);
   const partH = Math.max(TILE, boss.h / 2);
   boss.parts = [
-    makeRouteBossPart(boss, boss.x, boss.y + boss.h / 4, partW, partH, 0),
-    makeRouteBossPart(boss, boss.x + boss.w - partW, boss.y + boss.h / 4, partW, partH, 1),
+    makeRouteBossPart(boss, boss.x, boss.y + boss.h / 4, partW, partH, 0, "path"),
+    makeRouteBossPart(boss, boss.x + boss.w - partW, boss.y + boss.h / 4, partW, partH, 1, "chase"),
   ];
 }
 
-function makeRouteBossPart(boss, x, y, w, h, offset) {
+function makeRouteBossPart(boss, x, y, w, h, offset, mode = "path") {
   return {
     x,
     y,
     w,
     h,
+    mode,
     pathIndex: ((boss.pathIndex || 0) + offset) % Math.max(1, boss.path?.length || 1),
   };
 }
@@ -1303,6 +1304,10 @@ function moveRouteBoss(boss, dt) {
 }
 
 function moveRouteBossActor(boss, actor, dt) {
+  if (actor.mode === "chase") {
+    moveRouteBossChaser(boss, actor, dt);
+    return;
+  }
   const path = boss.path || [];
   if (path.length < 2) return;
   actor.pathIndex ??= boss.pathIndex || 1;
@@ -1322,6 +1327,23 @@ function moveRouteBossActor(boss, actor, dt) {
   }
   actor.x += dx / distance * step;
   actor.y += dy / distance * step;
+}
+
+function moveRouteBossChaser(boss, actor, dt) {
+  const player = state.player;
+  const targetX = player.x + player.w / 2;
+  const targetY = player.y + player.h / 2;
+  const cx = actor.x + actor.w / 2;
+  const cy = actor.y + actor.h / 2;
+  const dx = targetX - cx;
+  const dy = targetY - cy;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 0.001) return;
+  const step = Math.max(1, boss.moveSpeed || TILE * 3) * dt;
+  actor.x += dx / distance * Math.min(distance, step);
+  actor.y += dy / distance * Math.min(distance, step);
+  actor.x = Math.max(0, Math.min(state.room.width - actor.w, actor.x));
+  actor.y = Math.max(0, Math.min(state.room.height - actor.h, actor.y));
 }
 
 function routeBossWarningRects(boss) {
