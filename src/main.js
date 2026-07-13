@@ -1213,7 +1213,6 @@ function updateRouteBosses(dt) {
     } else if (boss.phase === "move") {
       boss.warningRects = [];
       moveRouteBoss(boss, dt);
-      maybeLeaveRouteBossGravity(boss);
       if (boss.hitPlayer) finishRouteBossCycle(boss);
       else if (boss.timer <= 0) startRouteBossPhase(boss, "shoot");
     } else if (boss.phase === "shoot" || boss.phase === "darkShoot") {
@@ -1233,7 +1232,10 @@ function startRouteBossPhase(boss, phase) {
   boss.shotHit = false;
   boss.shotTimer = 0;
   if (phase === "warn") boss.timer = boss.warningTime || 2;
-  else if (phase === "move") boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.moveDuration || 15);
+  else if (phase === "move") {
+    boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.moveDuration || 15);
+    seedRouteBossGravity(boss);
+  }
   else if (phase === "shoot" || phase === "darkShoot") boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.shootDuration || 15);
 }
 
@@ -1320,46 +1322,98 @@ function moveRouteBossActor(boss, actor, dt) {
 }
 
 function routeBossWarningRects(boss) {
-  return routeBossActors(boss).map((actor) => {
-    const path = boss.path || [];
-    const target = path[(actor.pathIndex ?? boss.pathIndex ?? 1) % path.length] || { x: actor.x + actor.w / 2, y: actor.y + actor.h / 2 };
-    const tx = target.x - actor.w / 2;
-    const ty = target.y - actor.h / 2;
-    const x = Math.min(actor.x, tx);
-    const y = Math.min(actor.y, ty);
-    return {
-      x,
-      y,
-      w: Math.max(actor.w, Math.abs(tx - actor.x) + actor.w),
-      h: Math.max(actor.h, Math.abs(ty - actor.y) + actor.h),
-    };
-  });
+  return routeBossSweepRects(boss);
 }
 
-function maybeLeaveRouteBossGravity(boss) {
+function routeBossSweepRects(boss) {
+  const path = boss.path || [];
+  if (path.length < 2) return routeBossActors(boss).map((actor) => ({ x: actor.x, y: actor.y, w: actor.w, h: actor.h }));
+  const sample = routeBossActors(boss)[0] || boss;
+  const rects = [];
+  for (let i = 0; i < path.length; i += 1) {
+    const a = path[i];
+    const b = path[(i + 1) % path.length];
+    const x1 = a.x - sample.w / 2;
+    const y1 = a.y - sample.h / 2;
+    const x2 = b.x - sample.w / 2;
+    const y2 = b.y - sample.h / 2;
+    rects.push({
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      w: Math.abs(x2 - x1) + sample.w,
+      h: Math.abs(y2 - y1) + sample.h,
+    });
+  }
+  return rects;
+}
+
+function seedRouteBossGravity(boss) {
+  clearRouteBossGravity(boss);
   boss.tempGravityKeys ||= new Set();
-  for (const actor of routeBossActors(boss)) {
-    const minX = Math.max(0, Math.floor(actor.x / TILE));
-    const maxX = Math.min(Math.floor((state.room.width - 1) / TILE), Math.floor((actor.x + actor.w - 1) / TILE));
-    const minY = Math.max(0, Math.floor(actor.y / TILE));
-    const maxY = Math.min(Math.floor((state.room.height - 1) / TILE), Math.floor((actor.y + actor.h - 1) / TILE));
-    for (let y = minY; y <= maxY; y += 1) {
-      for (let x = minX; x <= maxX; x += 1) {
-        const key = `routeBoss:${boss.index}:${x},${y}`;
-        if (boss.tempGravityKeys.has(key) || Math.random() >= 0.5) continue;
-        boss.tempGravityKeys.add(key);
-        state.room.gravityZones.push({
-          x: x * TILE,
-          y: y * TILE,
-          w: TILE,
-          h: TILE,
-          source: "routeBoss",
-          owner: boss.index,
-          key,
-        });
-      }
+  const cells = routeBossSweepCells(boss);
+  const seed = Math.floor(Math.random() * 1000000);
+  boss.gravitySeed = seed;
+  for (const cell of cells) {
+    if (routeBossCellRoll(cell.x, cell.y, boss.index, seed) >= 0.5) continue;
+    const key = `routeBoss:${boss.index}:${cell.x},${cell.y}`;
+    boss.tempGravityKeys.add(key);
+    state.room.gravityZones.push({
+      x: cell.x * TILE,
+      y: cell.y * TILE,
+      w: TILE,
+      h: TILE,
+      source: "routeBoss",
+      owner: boss.index,
+      key,
+    });
+  }
+}
+
+function routeBossSweepCells(boss) {
+  const path = boss.path || [];
+  const actors = routeBossActors(boss);
+  const sample = actors[0] || boss;
+  const cells = new Set();
+  if (path.length < 2) {
+    addRouteBossRectCells(cells, sample.x, sample.y, sample.w, sample.h);
+    return [...cells].map(routeBossCellFromKey);
+  }
+  for (let i = 0; i < path.length; i += 1) {
+    const a = path[i];
+    const b = path[(i + 1) % path.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(length / (TILE * 0.5)));
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps;
+      const cx = a.x + dx * t;
+      const cy = a.y + dy * t;
+      addRouteBossRectCells(cells, cx - sample.w / 2, cy - sample.h / 2, sample.w, sample.h);
     }
   }
+  return [...cells].map(routeBossCellFromKey);
+}
+
+function addRouteBossRectCells(cells, x, y, w, h) {
+  const minX = Math.max(0, Math.floor(x / TILE));
+  const maxX = Math.min(Math.floor((state.room.width - 1) / TILE), Math.floor((x + w - 1) / TILE));
+  const minY = Math.max(0, Math.floor(y / TILE));
+  const maxY = Math.min(Math.floor((state.room.height - 1) / TILE), Math.floor((y + h - 1) / TILE));
+  for (let cy = minY; cy <= maxY; cy += 1) {
+    for (let cx = minX; cx <= maxX; cx += 1) cells.add(`${cx},${cy}`);
+  }
+}
+
+function routeBossCellFromKey(key) {
+  const [x, y] = key.split(",").map(Number);
+  return { x, y };
+}
+
+function routeBossCellRoll(x, y, bossIndex, seed) {
+  let n = (x * 73856093) ^ (y * 19349663) ^ (bossIndex * 83492791) ^ seed;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
 }
 
 function clearRouteBossGravity(boss) {
