@@ -257,6 +257,7 @@
       { char: 'M', name: '敌人', category: '危险', color: '#3f273f', desc: '拖动设置直线巡逻敌人' },
       { char: 'Z', name: 'Boss', category: '危险', color: '#49364f', desc: '3x3悬浮Boss（字符为左上锚点）' },
       { char: '2', name: '掉落Boss', category: '危险', color: '#7b4a85', desc: '拖动框选预警掉落区域，生成10x10掉落Boss' },
+      { char: '6', name: '路线Boss', category: '危险', color: '#59415f', desc: '点选移动路线，完成后生成8x8路线Boss' },
       { char: 'N', name: '高级敌人', category: '危险', color: '#7d3f7d', desc: '点选路径点，完成后设置大小和速度' },
       { char: 'K', name: '单次按压开关', category: '触发器', color: '#d6c08a', desc: '首次触碰后永久保持触发' },
       { char: 'S', name: '多次按压开关', category: '触发器', color: '#d89b63', desc: '每次重新触碰时切换状态' },
@@ -292,6 +293,7 @@
     let movingPlatforms = [];
     let platformGenerators = [];
     let dropBosses = [];
+    let routeBosses = [];
     let gravityZones = [];
     let targetDefaults = {};
     let activeLightningChain = -1;
@@ -430,6 +432,7 @@
         movingPlatforms: [],
         platformGenerators: [],
         dropBosses: [],
+        routeBosses: [],
         gravityZones: [],
         roomSize: size,
         spawn: defaultSpawn(size)
@@ -543,7 +546,7 @@
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
             const size = roomSizeFromData(parsed);
-            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], gravityZones: [], spawn: defaultSpawn(size) };
+            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], spawn: defaultSpawn(size) };
           }
           const size = roomSizeFromData(parsed);
           return {
@@ -560,6 +563,7 @@
             movingPlatforms: parsed.movingPlatforms || [],
             platformGenerators: parsed.platformGenerators || [],
             dropBosses: parsed.dropBosses || [],
+            routeBosses: parsed.routeBosses || [],
             gravityZones: parsed.gravityZones || [],
             spawn: parsed.spawn || defaultSpawn(size)
           };
@@ -590,6 +594,7 @@
         movingPlatforms,
         platformGenerators,
         dropBosses,
+        routeBosses,
         gravityZones,
         spawn
       };
@@ -617,6 +622,7 @@
         movingPlatforms,
         platformGenerators,
         dropBosses,
+        routeBosses,
         gravityZones,
         spawn
       };
@@ -637,6 +643,7 @@
         !(data?.movingPlatforms || []).length &&
         !(data?.platformGenerators || []).length &&
         !(data?.dropBosses || []).length &&
+        !(data?.routeBosses || []).length &&
         !(data?.gravityZones || []).length;
     }
 
@@ -663,6 +670,7 @@
           movingPlatforms: found.movingPlatforms || [],
           platformGenerators: found.platformGenerators || [],
           dropBosses: found.dropBosses || [],
+          routeBosses: found.routeBosses || [],
           gravityZones: found.gravityZones || [],
           spawn: found.spawn || defaultSpawn(size)
         };
@@ -697,6 +705,7 @@
             movingPlatforms: roomData.movingPlatforms || [],
             platformGenerators: roomData.platformGenerators || [],
             dropBosses: roomData.dropBosses || [],
+            routeBosses: roomData.routeBosses || [],
             gravityZones: roomData.gravityZones || [],
             spawn: roomData.spawn || defaultSpawn(size)
           }));
@@ -739,6 +748,7 @@
             movingPlatforms: target.movingPlatforms || [],
             platformGenerators: target.platformGenerators || [],
             dropBosses: target.dropBosses || [],
+            routeBosses: target.routeBosses || [],
             gravityZones: target.gravityZones || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
@@ -753,7 +763,7 @@
       const parsed = JSON.parse(stored);
       const size = roomSizeFromData(parsed);
       const data = Array.isArray(parsed)
-        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], gravityZones: [], spawn: defaultSpawn(size) }
+        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], spawn: defaultSpawn(size) }
         : {
           roomSize: size,
           blocks: normalizeGrid(parsed.blocks, size),
@@ -768,6 +778,7 @@
           movingPlatforms: parsed.movingPlatforms || [],
           platformGenerators: parsed.platformGenerators || [],
           dropBosses: parsed.dropBosses || [],
+          routeBosses: parsed.routeBosses || [],
           gravityZones: parsed.gravityZones || [],
           spawn: parsed.spawn || defaultSpawn(size)
         };
@@ -787,6 +798,7 @@
         movingPlatforms: data.movingPlatforms || [],
         platformGenerators: data.platformGenerators || [],
         dropBosses: data.dropBosses || [],
+        routeBosses: data.routeBosses || [],
         gravityZones: data.gravityZones || [],
         spawn: data.spawn
       };
@@ -965,6 +977,7 @@
           movingPlatforms: data.movingPlatforms || [],
           platformGenerators: data.platformGenerators || [],
           dropBosses: data.dropBosses || [],
+          routeBosses: data.routeBosses || [],
           gravityZones: data.gravityZones || [],
         };
       });
@@ -1030,6 +1043,7 @@
       movingPlatforms = data.movingPlatforms || [];
       platformGenerators = data.platformGenerators || [];
       dropBosses = data.dropBosses || [];
+      routeBosses = data.routeBosses || [];
       gravityZones = data.gravityZones || [];
       pendingControlTargets = [];
       enemyDrag = null;
@@ -1540,6 +1554,19 @@
         ctx.fillRect(boss.x * TILE, boss.y * TILE, boss.w * TILE, boss.h * TILE);
         ctx.strokeRect(boss.x * TILE + 0.5, boss.y * TILE + 0.5, boss.w * TILE - 1, boss.h * TILE - 1);
       }
+      for (const boss of routeBosses) {
+        if (Array.isArray(boss.path) && boss.path.length > 1) drawPathPreview(boss.path, '#9e7bd1', true);
+        const first = boss.path?.[0] || { x: boss.x || 0, y: boss.y || 0 };
+        const w = Number(boss.w || 8);
+        const h = Number(boss.h || 8);
+        const x = first.x * TILE - w * TILE / 2;
+        const y = first.y * TILE - h * TILE / 2;
+        ctx.fillStyle = 'rgba(89,65,95,0.38)';
+        ctx.strokeStyle = '#9e7bd1';
+        ctx.lineWidth = 2;
+        ctx.fillRect(x, y, w * TILE, h * TILE);
+        ctx.strokeRect(x + 0.5, y + 0.5, w * TILE - 1, h * TILE - 1);
+      }
       if (platformGeneratorDrag) drawDragRect(platformGeneratorDrag, '#7da7bd');
       if (gravityZoneDrag) drawDragRect(gravityZoneDrag, '#6db7ff');
       for (const seq of sequencers) {
@@ -1593,6 +1620,7 @@
       if (target.type === 'movingPlatform') return `movingPlatform:${target.index}`;
       if (target.type === 'platformGenerator') return `platformGenerator:${target.index}`;
       if (target.type === 'dropBoss') return `dropBoss:${target.index}`;
+      if (target.type === 'routeBoss') return `routeBoss:${target.index}`;
       return `cell:${target.x},${target.y}`;
     }
 
@@ -1616,6 +1644,14 @@
           (legacyZone && x >= legacyZone.x && x < legacyZone.x + legacyZone.w && y >= legacyZone.y && y < legacyZone.y + legacyZone.h);
       });
       if (dropBossIndex >= 0) return { type: 'dropBoss', index: dropBossIndex };
+      const routeBossIndex = routeBosses.findIndex(item => {
+        const first = item.path?.[0] || { x: item.x || 0, y: item.y || 0 };
+        const w = Number(item.w || 8);
+        const h = Number(item.h || 8);
+        return x >= first.x - w / 2 && x < first.x + w / 2 &&
+          y >= first.y - h / 2 && y < first.y + h / 2;
+      });
+      if (routeBossIndex >= 0) return { type: 'routeBoss', index: routeBossIndex };
       const enemyIndex = enemyTargetIndexAt(x, y);
       if (enemyIndex >= 0) return { type: 'enemy', index: enemyIndex };
       return null;
@@ -2300,6 +2336,35 @@
       }
       if (pathDraft.type === 'advancedEnemy') finishAdvancedEnemyPath();
       else if (pathDraft.type === 'advancedEmitter') finishAdvancedEmitterPath();
+      else if (pathDraft.type === 'routeBoss') finishRouteBossPath();
+    }
+
+    function finishRouteBossPath() {
+      const speed = clampNumber(prompt('路线Boss移动速度（格/秒，0.1-12）', '3'), 0.1, 12, 3);
+      const projectilePeriod = clampNumber(prompt('射击间隔（秒，0.08-3）', '0.55'), 0.08, 3, 0.55);
+      const projectileSpeed = clampNumber(prompt('子弹速度（格/秒，0.5-20）', '7'), 0.5, 20, 7);
+      const trackingTime = clampNumber(prompt('追踪时间（秒，0.5-3）', '2'), 0.5, 3, 2);
+      const path = pathDraft.path.map(point => ({ ...point }));
+      const first = path[0];
+      routeBosses = routeBosses.filter(item => !(item.path?.[0]?.x === first.x && item.path?.[0]?.y === first.y));
+      routeBosses.push({
+        path,
+        w: 8,
+        h: 8,
+        speed,
+        warningTime: 2,
+        moveDuration: 15,
+        shootDuration: 15,
+        splitDuration: 10,
+        projectilePeriod,
+        projectileSpeed,
+        projectileSize: 0.45,
+        trackingTime,
+      });
+      grid[first.y][first.x] = '6';
+      pathDraft = null;
+      saveRoomData();
+      render();
     }
 
     function finishAdvancedEnemyPath() {
@@ -2826,13 +2891,26 @@
         }
         return !hit;
       });
+      const removedRouteBossKeys = [];
+      routeBosses = routeBosses.filter((item, index) => {
+        const first = item.path?.[0] || { x: item.x || 0, y: item.y || 0 };
+        const w = Number(item.w || 8);
+        const h = Number(item.h || 8);
+        const hit = x >= first.x - w / 2 && x < first.x + w / 2 &&
+          y >= first.y - h / 2 && y < first.y + h / 2;
+        if (hit) {
+          removed = true;
+          removedRouteBossKeys.push(`routeBoss:${index}`);
+        }
+        return !hit;
+      });
       gravityZones = gravityZones.filter((item) => {
         const hit = x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h;
         if (hit) removed = true;
         return !hit;
       });
       if (!removed) return false;
-      const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys]);
+      const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys, ...removedRouteBossKeys]);
       controlBindings = controlBindings
         .map(binding => ({
           ...binding,
@@ -2949,6 +3027,11 @@
       }
       if (editorMode === 'tile' && currentChar === 'N' && e.button === 0) {
         addAdvancedPathPoint('advancedEnemy', getCell(e));
+        isPainting = false;
+        return;
+      }
+      if (editorMode === 'tile' && currentChar === '6' && e.button === 0) {
+        addAdvancedPathPoint('routeBoss', getCell(e));
         isPainting = false;
         return;
       }
@@ -3135,6 +3218,7 @@
       movingPlatforms = [];
       platformGenerators = [];
       dropBosses = [];
+      routeBosses = [];
       gravityZones = [];
       pathDraft = null;
       pendingControlTargets = [];
@@ -3191,6 +3275,7 @@
               movingPlatforms: roomData.movingPlatforms || [],
               platformGenerators: roomData.platformGenerators || [],
               dropBosses: roomData.dropBosses || [],
+              routeBosses: roomData.routeBosses || [],
               gravityZones: roomData.gravityZones || [],
               spawn: roomData.spawn || defaultSpawn(size)
             };
@@ -3211,6 +3296,7 @@
           movingPlatforms = data.movingPlatforms || [];
           platformGenerators = data.platformGenerators || [];
           dropBosses = data.dropBosses || [];
+          routeBosses = data.routeBosses || [];
           gravityZones = data.gravityZones || [];
           spawn = data.spawn || defaultSpawn();
           if (data.room) currentRoom = data.room;
@@ -3239,6 +3325,7 @@
         movingPlatforms = [];
         platformGenerators = [];
         dropBosses = [];
+        routeBosses = [];
         pathDraft = null;
         pendingControlTargets = [];
         spawn = defaultSpawn();
@@ -3270,6 +3357,7 @@
             movingPlatforms: target.movingPlatforms || [],
             platformGenerators: target.platformGenerators || [],
             dropBosses: target.dropBosses || [],
+            routeBosses: target.routeBosses || [],
             gravityZones: target.gravityZones || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
@@ -3299,6 +3387,7 @@
         movingPlatforms: roomData.movingPlatforms || [],
         platformGenerators: roomData.platformGenerators || [],
         dropBosses: roomData.dropBosses || [],
+        routeBosses: roomData.routeBosses || [],
         gravityZones: roomData.gravityZones || [],
         playtestLoadout: loadout
       };

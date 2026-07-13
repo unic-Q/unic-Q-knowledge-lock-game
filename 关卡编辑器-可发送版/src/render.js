@@ -261,6 +261,59 @@ function drawDropBoss(ctx, boss) {
   }
 }
 
+function transformedRouteBoss(state, boss) {
+  const out = { ...boss };
+  if (boss.parts?.length) out.parts = boss.parts.map((part) => transformedRect(state, part));
+  else {
+    const body = transformedRect(state, boss);
+    out.x = body.x;
+    out.y = body.y;
+    out.w = body.w;
+    out.h = body.h;
+  }
+  out.warningRects = (boss.warningRects || []).map((rect) => transformedRect(state, rect));
+  return out;
+}
+
+function drawRouteBoss(ctx, boss) {
+  if (boss.defeated) return;
+  for (const warning of boss.warningRects || []) {
+    ctx.save();
+    ctx.fillStyle = "rgba(244, 201, 93, 0.18)";
+    ctx.strokeStyle = "#f4c95d";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 5]);
+    ctx.fillRect(warning.x, warning.y, warning.w, warning.h);
+    ctx.strokeRect(warning.x + 0.5, warning.y + 0.5, warning.w - 1, warning.h - 1);
+    ctx.restore();
+  }
+  const parts = boss.parts?.length ? boss.parts : [boss];
+  for (const part of parts) {
+    ctx.save();
+    const dark = boss.phase === "darkShoot";
+    ctx.fillStyle = dark ? "#1b1824" : boss.split ? "#5a385f" : "#59415f";
+    ctx.strokeStyle = dark ? "#9e7bd1" : "#f4c95d";
+    ctx.lineWidth = 3;
+    ctx.fillRect(part.x, part.y, part.w, part.h);
+    ctx.strokeRect(part.x + 0.5, part.y + 0.5, part.w - 1, part.h - 1);
+    ctx.fillStyle = "#f4c95d";
+    ctx.fillRect(part.x + part.w * 0.26, part.y + part.h * 0.32, Math.max(5, part.w * 0.08), Math.max(5, part.h * 0.08));
+    ctx.fillRect(part.x + part.w * 0.64, part.y + part.h * 0.32, Math.max(5, part.w * 0.08), Math.max(5, part.h * 0.08));
+    if (boss.phase === "shoot" || boss.phase === "darkShoot") {
+      ctx.strokeStyle = "#ffcf9a";
+      ctx.lineWidth = 2;
+      const cy = part.y + part.h * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(part.x + part.w * 0.25, cy);
+      ctx.lineTo(part.x + part.w * 0.05, cy);
+      ctx.moveTo(part.x + part.w * 0.75, cy);
+      ctx.lineTo(part.x + part.w * 0.95, cy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function drawSwitch(ctx, s) {
   ctx.fillStyle = s.pressed ? "#74c476" : "#d6c08a";
   ctx.fillRect(s.x, s.y, s.w, s.h);
@@ -603,6 +656,7 @@ export function draw(ctx, state) {
   for (const object of room.fallingObjects || []) if (!object.dead) drawFallingObject(ctx, transformedRect(state, object));
   for (const boss of room.bosses || []) drawBoss(ctx, transformedRect(state, boss));
   for (const boss of room.dropBosses || []) drawDropBoss(ctx, transformedRect(state, boss));
+  for (const boss of room.routeBosses || []) drawRouteBoss(ctx, transformedRouteBoss(state, boss));
   for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
   const lightningDisabled = Boolean(room.lightningDisabled);
   if (!lightningDisabled) {
@@ -739,6 +793,7 @@ export function draw(ctx, state) {
   }
   ctx.restore();
 
+  drawRouteBossDarkness(ctx, state, camera, ctx.canvas);
   if (state.deathTimer <= 0) drawRedQte(ctx, player);
   ctx.restore();
   if (state.form === "black") {
@@ -778,6 +833,24 @@ function drawGravityZoneTimer(ctx, state) {
   ctx.strokeRect(x - w / 2 + 0.5, y - 3.5, w - 1, 31);
   ctx.fillStyle = invincible > 0 ? "#f4c95d" : "#d7ecff";
   ctx.fillText(text, x, y + 3);
+  ctx.restore();
+}
+
+function drawRouteBossDarkness(ctx, state, camera, canvas) {
+  const active = state.room?.routeBosses?.some((boss) => !boss.defeated && boss.phase === "darkShoot");
+  if (!active) return;
+  const { player } = state;
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const radius = TILE * 2.5;
+  const viewW = canvas.width / camera.scale;
+  const viewH = canvas.height / camera.scale;
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 12, 0.88)";
+  ctx.beginPath();
+  ctx.rect(camera.x, camera.y, viewW, viewH);
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2, true);
+  ctx.fill("evenodd");
   ctx.restore();
 }
 

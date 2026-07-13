@@ -560,6 +560,44 @@ export function parseRoom(data) {
       enabled: true,
     };
   });
+  const routeBosses = (data.routeBosses || []).map((item, index) => {
+    const path = normalizePathPoints(item.path);
+    const first = path[0] || { x: Number(item.x || 6) * TILE + TILE * 4, y: Number(item.y || 4) * TILE + TILE * 4 };
+    const w = Math.max(1, Number(item.w || 8)) * TILE;
+    const h = Math.max(1, Number(item.h || 8)) * TILE;
+    return {
+      index,
+      x: first.x - w / 2,
+      y: first.y - h / 2,
+      w,
+      h,
+      path,
+      pathIndex: path.length > 1 ? 1 : 0,
+      moveSpeed: Math.max(0.1, Number(item.speed || item.moveSpeed || 3)) * TILE,
+      warningTime: Math.max(0.2, Number(item.warningTime || 2)),
+      moveDuration: Math.max(1, Number(item.moveDuration || 15)),
+      shootDuration: Math.max(1, Number(item.shootDuration || 15)),
+      splitDuration: Math.max(1, Number(item.splitDuration || 10)),
+      projectilePeriod: Math.max(0.08, Number(item.projectilePeriod || 0.55)),
+      projectileSpeed: Math.max(0.5, Number(item.projectileSpeed || 7)) * TILE,
+      projectileSize: Math.max(4, Number(item.projectileSize || 0.45) * TILE),
+      trackingTime: Math.max(0.5, Math.min(3, Number(item.trackingTime || 2))),
+      phase: "warn",
+      timer: Math.max(0.2, Number(item.warningTime || 2)),
+      round: 0,
+      splitRound: 0,
+      split: false,
+      defeated: false,
+      hitPlayer: false,
+      shotHit: false,
+      shotTimer: 0,
+      warningRects: [],
+      targetKey: `routeBoss:${index}`,
+      enabled: true,
+      tempGravityKeys: new Set(),
+      parts: null,
+    };
+  });
   const cracks = [];
   const hidden = [];
   const anchors = [];
@@ -805,6 +843,7 @@ export function parseRoom(data) {
     platformGenerators,
     gravityZones,
     dropBosses,
+    routeBosses,
     fallingObjects,
     breakablePlatforms,
     cracks,

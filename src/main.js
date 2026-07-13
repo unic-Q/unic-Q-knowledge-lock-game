@@ -695,6 +695,7 @@ function update(dt) {
   else if (state.form === "black") updateBlack(state, input, dt);
 
   updateBoss(dt);
+  updateRouteBosses(dt);
   handleSwitches(dt);
   updatePlatformGenerators(dt);
   updateDropBosses(dt);
@@ -882,6 +883,10 @@ function handleHazards() {
   for (const projectile of room.projectiles || []) {
     if (!rectsOverlap(expandedRollRect(player), transformedRect(state, projectile))) continue;
     if (projectileIgnoredByForm(projectile)) continue;
+    if (projectile.source === "routeBoss") {
+      const boss = (room.routeBosses || [])[projectile.sourceBossIndex];
+      if (boss) boss.shotHit = true;
+    }
     if (!surviveHazard(player)) return;
   }
   for (const h of room.hazards || []) {
@@ -957,7 +962,7 @@ function projectileIgnoredByForm(projectile) {
 
 function updateGravityZones(dt) {
   const { room, player } = state;
-  const inZone = (room.gravityZones || []).some((zone) => rectsOverlap(player, zone));
+  const inZone = (room.gravityZones || []).some((zone) => rectsOverlap(player, transformedRect(state, zone)));
   state.gravityScale = inZone ? 0.1 : 1;
   if (inZone !== state.wasInGravityZone) {
     player.jumps = 0;
@@ -987,7 +992,8 @@ function applyBossRoomProgress(respawning = false) {
   if (!room) return;
   const hasBoss = Boolean(room.bosses?.length);
   const hasDropBoss = Boolean(room.dropBosses?.length);
-  if (!hasBoss && !hasDropBoss) return;
+  const hasRouteBoss = Boolean(room.routeBosses?.length);
+  if (!hasBoss && !hasDropBoss && !hasRouteBoss) return;
   const defeated = state.defeatedBossRooms.has(room.id);
   const cleared = state.clearedBossRooms.has(room.id);
   if (hasBoss && defeated) {
@@ -1005,6 +1011,14 @@ function applyBossRoomProgress(respawning = false) {
       boss.enabled = false;
       boss.warnings = [];
       boss.phase = null;
+    }
+  }
+  if (hasRouteBoss && defeated) {
+    for (const boss of room.routeBosses) {
+      boss.defeated = true;
+      boss.enabled = false;
+      boss.warningRects = [];
+      clearRouteBossGravity(boss);
     }
   }
   room.bossDefeated = defeated;
@@ -1174,6 +1188,215 @@ function handleBossHazards() {
     if (dropBoss.enabled === false || dropBoss.defeated) continue;
     if (rectsOverlap(state.player, transformedRect(state, dropBoss))) hitDropBoss(dropBoss);
   }
+  for (const routeBoss of state.room.routeBosses || []) {
+    if (routeBoss.enabled === false || routeBoss.defeated) continue;
+    for (const part of routeBoss.parts?.length ? routeBoss.parts : [routeBoss]) {
+      if (!rectsOverlap(state.player, transformedRect(state, part))) continue;
+      routeBoss.hitPlayer = true;
+      if (!surviveHazard(state.player)) return;
+      break;
+    }
+  }
+}
+
+function updateRouteBosses(dt) {
+  const { room } = state;
+  for (const boss of room.routeBosses || []) {
+    if (boss.defeated || boss.enabled === false) continue;
+    if (!boss.phase) startRouteBossPhase(boss, "warn");
+    boss.timer -= dt;
+    boss.shotTimer = Math.max(0, (boss.shotTimer || 0) - dt);
+    if (boss.phase === "warn") {
+      boss.warningRects = routeBossWarningRects(boss);
+      if (boss.timer <= 0) startRouteBossPhase(boss, "move");
+    } else if (boss.phase === "move") {
+      boss.warningRects = [];
+      moveRouteBoss(boss, dt);
+      maybeLeaveRouteBossGravity(boss);
+      if (boss.hitPlayer) finishRouteBossCycle(boss);
+      else if (boss.timer <= 0) startRouteBossPhase(boss, "shoot");
+    } else if (boss.phase === "shoot" || boss.phase === "darkShoot") {
+      fireRouteBossGuns(boss);
+      if (boss.shotHit) finishRouteBossCycle(boss);
+      else if (boss.timer <= 0) {
+        if (boss.phase === "shoot") startRouteBossPhase(boss, "darkShoot");
+        else finishRouteBossCycle(boss);
+      }
+    }
+  }
+}
+
+function startRouteBossPhase(boss, phase) {
+  boss.phase = phase;
+  boss.hitPlayer = false;
+  boss.shotHit = false;
+  boss.shotTimer = 0;
+  if (phase === "warn") boss.timer = boss.warningTime || 2;
+  else if (phase === "move") boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.moveDuration || 15);
+  else if (phase === "shoot" || phase === "darkShoot") boss.timer = boss.split ? (boss.splitDuration || 10) : (boss.shootDuration || 15);
+}
+
+function finishRouteBossCycle(boss) {
+  clearRouteBossGravity(boss);
+  boss.warningRects = [];
+  if (!boss.split) {
+    boss.round = (boss.round || 0) + 1;
+    if (boss.round >= 2) {
+      splitRouteBoss(boss);
+      startRouteBossPhase(boss, "warn");
+      return;
+    }
+    startRouteBossPhase(boss, "warn");
+    return;
+  }
+  boss.splitRound = (boss.splitRound || 0) + 1;
+  if (boss.splitRound >= 3) {
+    boss.defeated = true;
+    boss.enabled = false;
+    boss.parts = [];
+    if ((state.room.routeBosses || []).every((item) => item.defeated)) {
+      state.defeatedBossRooms.add(state.room.id);
+      state.room.bossDefeated = true;
+    }
+    return;
+  }
+  startRouteBossPhase(boss, "warn");
+}
+
+function splitRouteBoss(boss) {
+  boss.split = true;
+  const partW = Math.max(TILE, boss.w / 2);
+  const partH = Math.max(TILE, boss.h / 2);
+  boss.parts = [
+    makeRouteBossPart(boss, boss.x, boss.y + boss.h / 4, partW, partH, 0),
+    makeRouteBossPart(boss, boss.x + boss.w - partW, boss.y + boss.h / 4, partW, partH, 1),
+  ];
+}
+
+function makeRouteBossPart(boss, x, y, w, h, offset) {
+  return {
+    x,
+    y,
+    w,
+    h,
+    pathIndex: ((boss.pathIndex || 0) + offset) % Math.max(1, boss.path?.length || 1),
+  };
+}
+
+function routeBossActors(boss) {
+  return boss.parts?.length ? boss.parts : [boss];
+}
+
+function moveRouteBoss(boss, dt) {
+  for (const actor of routeBossActors(boss)) {
+    moveRouteBossActor(boss, actor, dt);
+  }
+  if (!boss.parts?.length) return;
+  boss.x = Math.min(...boss.parts.map((part) => part.x));
+  boss.y = Math.min(...boss.parts.map((part) => part.y));
+}
+
+function moveRouteBossActor(boss, actor, dt) {
+  const path = boss.path || [];
+  if (path.length < 2) return;
+  actor.pathIndex ??= boss.pathIndex || 1;
+  const target = path[actor.pathIndex % path.length];
+  const cx = actor.x + actor.w / 2;
+  const cy = actor.y + actor.h / 2;
+  const dx = target.x - cx;
+  const dy = target.y - cy;
+  const distance = Math.hypot(dx, dy);
+  const step = Math.max(1, boss.moveSpeed || TILE * 3) * dt;
+  if (distance <= Math.max(0.001, step)) {
+    actor.x = target.x - actor.w / 2;
+    actor.y = target.y - actor.h / 2;
+    actor.pathIndex = (actor.pathIndex + 1) % path.length;
+    if (!boss.parts?.length) boss.pathIndex = actor.pathIndex;
+    return;
+  }
+  actor.x += dx / distance * step;
+  actor.y += dy / distance * step;
+}
+
+function routeBossWarningRects(boss) {
+  return routeBossActors(boss).map((actor) => {
+    const path = boss.path || [];
+    const target = path[(actor.pathIndex ?? boss.pathIndex ?? 1) % path.length] || { x: actor.x + actor.w / 2, y: actor.y + actor.h / 2 };
+    const tx = target.x - actor.w / 2;
+    const ty = target.y - actor.h / 2;
+    const x = Math.min(actor.x, tx);
+    const y = Math.min(actor.y, ty);
+    return {
+      x,
+      y,
+      w: Math.max(actor.w, Math.abs(tx - actor.x) + actor.w),
+      h: Math.max(actor.h, Math.abs(ty - actor.y) + actor.h),
+    };
+  });
+}
+
+function maybeLeaveRouteBossGravity(boss) {
+  boss.tempGravityKeys ||= new Set();
+  for (const actor of routeBossActors(boss)) {
+    const minX = Math.max(0, Math.floor(actor.x / TILE));
+    const maxX = Math.min(Math.floor((state.room.width - 1) / TILE), Math.floor((actor.x + actor.w - 1) / TILE));
+    const minY = Math.max(0, Math.floor(actor.y / TILE));
+    const maxY = Math.min(Math.floor((state.room.height - 1) / TILE), Math.floor((actor.y + actor.h - 1) / TILE));
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const key = `routeBoss:${boss.index}:${x},${y}`;
+        if (boss.tempGravityKeys.has(key) || Math.random() >= 0.5) continue;
+        boss.tempGravityKeys.add(key);
+        state.room.gravityZones.push({
+          x: x * TILE,
+          y: y * TILE,
+          w: TILE,
+          h: TILE,
+          source: "routeBoss",
+          owner: boss.index,
+          key,
+        });
+      }
+    }
+  }
+}
+
+function clearRouteBossGravity(boss) {
+  state.room.gravityZones = (state.room.gravityZones || []).filter((zone) => zone.source !== "routeBoss" || zone.owner !== boss.index);
+  boss.tempGravityKeys = new Set();
+}
+
+function fireRouteBossGuns(boss) {
+  if (boss.shotTimer > 0) return;
+  boss.shotTimer = boss.projectilePeriod || 0.55;
+  for (const actor of routeBossActors(boss)) {
+    fireRouteBossProjectile(boss, actor, actor.x + actor.w * 0.25, actor.y + actor.h * 0.5);
+    fireRouteBossProjectile(boss, actor, actor.x + actor.w * 0.75, actor.y + actor.h * 0.5);
+  }
+}
+
+function fireRouteBossProjectile(boss, actor, x, y) {
+  const size = Math.max(4, boss.projectileSize || TILE * 0.45);
+  const player = state.player;
+  const dx = player.x + player.w / 2 - x;
+  const dy = player.y + player.h / 2 - y;
+  const length = Math.hypot(dx, dy) || 1;
+  const speed = boss.projectileSpeed || TILE * 7;
+  state.room.projectiles ||= [];
+  state.room.projectiles.push({
+    x: x - size / 2,
+    y: y - size / 2,
+    w: size,
+    h: size,
+    vx: dx / length * speed,
+    vy: dy / length * speed,
+    speed,
+    hazard: "spike",
+    trackingTime: Math.max(0, Math.min(3, boss.trackingTime || 2)),
+    life: 8,
+    source: "routeBoss",
+    sourceBossIndex: boss.index,
+  });
 }
 
 function hitDropBoss(boss) {
@@ -1278,13 +1501,14 @@ function deflectProjectileByGravityZones(projectile, previous) {
   const prevCenter = { x: previous.x + projectile.w / 2, y: previous.y + projectile.h / 2 };
   const nextCenter = { x: projectile.x + projectile.w / 2, y: projectile.y + projectile.h / 2 };
   for (const zone of state.room.gravityZones || []) {
-    const wasInside = pointInRect(prevCenter, zone);
-    const isInside = pointInRect(nextCenter, zone);
+    const zoneRect = transformedRect(state, zone);
+    const wasInside = pointInRect(prevCenter, zoneRect);
+    const isInside = pointInRect(nextCenter, zoneRect);
     if (wasInside === isInside) continue;
-    const leftCross = crossesValue(prevCenter.x, nextCenter.x, zone.x);
-    const rightCross = crossesValue(prevCenter.x, nextCenter.x, zone.x + zone.w);
-    const topCross = crossesValue(prevCenter.y, nextCenter.y, zone.y);
-    const bottomCross = crossesValue(prevCenter.y, nextCenter.y, zone.y + zone.h);
+    const leftCross = crossesValue(prevCenter.x, nextCenter.x, zoneRect.x);
+    const rightCross = crossesValue(prevCenter.x, nextCenter.x, zoneRect.x + zoneRect.w);
+    const topCross = crossesValue(prevCenter.y, nextCenter.y, zoneRect.y);
+    const bottomCross = crossesValue(prevCenter.y, nextCenter.y, zoneRect.y + zoneRect.h);
     const horizontalHit = leftCross || rightCross;
     const verticalHit = topCross || bottomCross;
     if (horizontalHit && (!verticalHit || Math.abs(projectile.vx) >= Math.abs(projectile.vy))) {
@@ -1920,6 +2144,9 @@ function handleSwitches(dt = 0) {
   for (const boss of room.dropBosses || []) {
     boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
   }
+  for (const boss of room.routeBosses || []) {
+    boss.enabled = !boss.defeated && targetEnabled(boss.targetKey, true);
+  }
 }
 
 function isDropBossSwitchLocked(room) {
@@ -1941,6 +2168,7 @@ function targetKeyForControlTarget(target) {
   if (target.type === "movingPlatform") return `movingPlatform:${target.index}`;
   if (target.type === "platformGenerator") return `platformGenerator:${target.index}`;
   if (target.type === "dropBoss") return `dropBoss:${target.index}`;
+  if (target.type === "routeBoss") return `routeBoss:${target.index}`;
   return `cell:${target.x},${target.y}`;
 }
 
