@@ -960,6 +960,7 @@ function updateGravityZones(dt) {
   if (inZone !== state.wasInGravityZone) {
     player.jumps = 0;
     player.coyote = Math.max(player.coyote || 0, 0.08);
+    if (inZone) cancelProjectileTracking(room);
     state.wasInGravityZone = inZone;
   }
   if (inZone) {
@@ -970,6 +971,12 @@ function updateGravityZones(dt) {
     }
   } else {
     state.gravityZoneTime = 0;
+  }
+}
+
+function cancelProjectileTracking(room) {
+  for (const projectile of room.projectiles || []) {
+    projectile.trackingTime = 0;
   }
 }
 
@@ -1199,6 +1206,8 @@ function updateEmitters(dt) {
   const { room, player } = state;
   room.projectiles ||= [];
   for (const projectile of room.projectiles) {
+    projectile.deflectCooldown = Math.max(0, (projectile.deflectCooldown || 0) - dt);
+    const previous = { x: projectile.x, y: projectile.y };
     if (projectile.trackingTime > 0) {
       const dx = player.x + player.w / 2 - (projectile.x + projectile.w / 2);
       const dy = player.y + player.h / 2 - (projectile.y + projectile.h / 2);
@@ -1209,6 +1218,7 @@ function updateEmitters(dt) {
     }
     projectile.x += projectile.vx * dt;
     projectile.y += projectile.vy * dt;
+    deflectProjectileByGravityZones(projectile, previous);
     projectile.life -= dt;
     if (activeBlocks(state).some((block) => rectsOverlap(projectile, block))) projectile.life = 0;
     const boss = room.bosses?.[0];
@@ -1259,6 +1269,44 @@ function updateEmitters(dt) {
       sourceEmitterIndex: emitter.index,
     });
   }
+}
+
+function deflectProjectileByGravityZones(projectile, previous) {
+  if (projectile.deflectCooldown > 0) return;
+  const prevCenter = { x: previous.x + projectile.w / 2, y: previous.y + projectile.h / 2 };
+  const nextCenter = { x: projectile.x + projectile.w / 2, y: projectile.y + projectile.h / 2 };
+  for (const zone of state.room.gravityZones || []) {
+    const wasInside = pointInRect(prevCenter, zone);
+    const isInside = pointInRect(nextCenter, zone);
+    if (wasInside === isInside) continue;
+    const leftCross = crossesValue(prevCenter.x, nextCenter.x, zone.x);
+    const rightCross = crossesValue(prevCenter.x, nextCenter.x, zone.x + zone.w);
+    const topCross = crossesValue(prevCenter.y, nextCenter.y, zone.y);
+    const bottomCross = crossesValue(prevCenter.y, nextCenter.y, zone.y + zone.h);
+    const horizontalHit = leftCross || rightCross;
+    const verticalHit = topCross || bottomCross;
+    if (horizontalHit && (!verticalHit || Math.abs(projectile.vx) >= Math.abs(projectile.vy))) {
+      projectile.vx *= -1;
+    } else if (verticalHit) {
+      projectile.vy *= -1;
+    } else {
+      projectile.vx *= -1;
+      projectile.vy *= -1;
+    }
+    projectile.x = previous.x;
+    projectile.y = previous.y;
+    projectile.trackingTime = 0;
+    projectile.deflectCooldown = 0.06;
+    return;
+  }
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+}
+
+function crossesValue(a, b, value) {
+  return (a < value && b >= value) || (a > value && b <= value);
 }
 
 function emitterDirection(emitter) {
