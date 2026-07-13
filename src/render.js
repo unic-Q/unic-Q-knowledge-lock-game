@@ -745,6 +745,7 @@ export function draw(ctx, state) {
     ctx.font = "700 20px Microsoft YaHei, sans-serif";
     ctx.fillText(["→", "↓", "←", "↑"][state.worldRot], 24, 34);
   }
+  drawGravityZoneTimer(ctx, state);
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
   ctx.restore();
@@ -752,6 +753,31 @@ export function draw(ctx, state) {
 
 function isRoom22DropBossSwitchHidden(room) {
   return Boolean(room?.dropBosses?.some((boss) => !boss.defeated));
+}
+
+function drawGravityZoneTimer(ctx, state) {
+  if (!state.wasInGravityZone && !(state.zoneInvincibleTimer > 0)) return;
+  const time = state.wasInGravityZone ? state.gravityZoneTime || 0 : 0;
+  const invincible = Math.max(0, state.zoneInvincibleTimer || 0);
+  const text = state.wasInGravityZone
+    ? `低重力 ${time.toFixed(1)}s${invincible > 0 ? `  无敌 ${invincible.toFixed(1)}s` : ""}`
+    : `无敌 ${invincible.toFixed(1)}s`;
+  ctx.save();
+  ctx.font = "700 18px Microsoft YaHei, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const x = ctx.canvas.width / 2;
+  const y = 14;
+  const metrics = ctx.measureText(text);
+  const w = metrics.width + 28;
+  ctx.fillStyle = "rgba(18, 31, 44, 0.78)";
+  ctx.strokeStyle = invincible > 0 ? "#f4c95d" : "#6db7ff";
+  ctx.lineWidth = 2;
+  ctx.fillRect(x - w / 2, y - 4, w, 32);
+  ctx.strokeRect(x - w / 2 + 0.5, y - 3.5, w - 1, 31);
+  ctx.fillStyle = invincible > 0 ? "#f4c95d" : "#d7ecff";
+  ctx.fillText(text, x, y + 3);
+  ctx.restore();
 }
 
 function drawPlayerDeath(ctx, state) {

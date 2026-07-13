@@ -57,6 +57,9 @@ const state = {
   deathReason: null,
   gravityScale: 1,
   wasInGravityZone: false,
+  gravityZoneTime: 0,
+  zoneInvincibleTimer: 0,
+  zoneInvincibleGranted: false,
 };
 
 function logEvent(type, data = {}) {
@@ -108,6 +111,9 @@ function loadRoom(index, spawn) {
   state.choosing = false;
   state.gravityScale = 1;
   state.wasInGravityZone = false;
+  state.gravityZoneTime = 0;
+  state.zoneInvincibleTimer = 0;
+  state.zoneInvincibleGranted = false;
   updateHud();
 }
 
@@ -305,6 +311,9 @@ function finishRespawn(reason = "unknown") {
   state.choosing = false;
   state.gravityScale = 1;
   state.wasInGravityZone = false;
+  state.gravityZoneTime = 0;
+  state.zoneInvincibleTimer = 0;
+  state.zoneInvincibleGranted = false;
   updateHud();
 }
 
@@ -671,8 +680,9 @@ function update(dt) {
   player.coyote = Math.max(0, player.coyote - dt);
   player.stun = Math.max(0, player.stun - dt);
   player.plagueGrace = Math.max(0, player.plagueGrace - dt);
+  state.zoneInvincibleTimer = Math.max(0, state.zoneInvincibleTimer - dt);
   player.onGround = false;
-  updateGravityZones();
+  updateGravityZones(dt);
 
   if (player.stun > 0) {
     player.vx *= 0.85;
@@ -942,7 +952,7 @@ function projectileIgnoredByForm(projectile) {
   return false;
 }
 
-function updateGravityZones() {
+function updateGravityZones(dt) {
   const { room, player } = state;
   const inZone = (room.gravityZones || []).some((zone) => rectsOverlap(player, zone));
   state.gravityScale = inZone ? 0.1 : 1;
@@ -950,6 +960,16 @@ function updateGravityZones() {
     player.jumps = 0;
     player.coyote = Math.max(player.coyote || 0, 0.08);
     state.wasInGravityZone = inZone;
+  }
+  if (inZone) {
+    state.gravityZoneTime += dt;
+    if (state.gravityZoneTime >= 3 && !state.zoneInvincibleGranted) {
+      state.zoneInvincibleTimer = 10;
+      state.zoneInvincibleGranted = true;
+    }
+  } else {
+    state.gravityZoneTime = 0;
+    state.zoneInvincibleGranted = false;
   }
 }
 
@@ -1684,6 +1704,7 @@ function segmentsIntersect(a, b, c, d) {
 }
 
 function surviveHazard(player) {
+  if (state.zoneInvincibleTimer > 0) return true;
   if (player.rollTimer > 0) {
     refreshRoll(player);
     return true;
@@ -2064,6 +2085,8 @@ function handleEnemies() {
       player.vy = Math.min(player.vy, -360);
     } else if (player.rollTimer > 0) {
       refreshRoll(player);
+    } else if (state.zoneInvincibleTimer > 0) {
+      continue;
     } else {
       respawn("enemy");
       return;
@@ -2077,6 +2100,8 @@ function handleEnemies() {
       player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
     } else if (player.rollTimer > 0) {
       refreshRoll(player);
+    } else if (state.zoneInvincibleTimer > 0) {
+      continue;
     } else {
       respawn("enemy");
       return;
