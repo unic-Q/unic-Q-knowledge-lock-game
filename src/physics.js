@@ -27,6 +27,45 @@ export function transformedRect(state, block) {
   return { ...block, x: c.x - block.w / 2, y: c.y - block.h / 2 + sink };
 }
 
+export function transformedPoint(state, point) {
+  if (state.worldRot === 0) return point;
+  return rotatePoint(point.x, point.y, state.worldRot);
+}
+
+export function transformedPlague(state, plague) {
+  if (state.worldRot === 0 || !Number.isFinite(plague.a) || !Number.isFinite(plague.b)) return plague;
+  const tx = plague.tx ?? -plague.ny;
+  const ty = plague.ty ?? plague.nx;
+  const nx = plague.nx ?? 0;
+  const ny = plague.ny ?? -1;
+  const p1 = rotatePoint(tx * plague.a + nx * plague.n, ty * plague.a + ny * plague.n, state.worldRot);
+  const p2 = rotatePoint(tx * plague.b + nx * plague.n, ty * plague.b + ny * plague.n, state.worldRot);
+  const tp = rotateVector(tx, ty, state.worldRot);
+  const np = rotateVector(nx, ny, state.worldRot);
+  return {
+    ...plague,
+    a: p1.x * tp.x + p1.y * tp.y,
+    b: p2.x * tp.x + p2.y * tp.y,
+    n: p1.x * np.x + p1.y * np.y,
+    tx: tp.x,
+    ty: tp.y,
+    nx: np.x,
+    ny: np.y,
+  };
+}
+
+function rotateVector(x, y, turns) {
+  let vx = x;
+  let vy = y;
+  for (let i = 0; i < ((turns % 4) + 4) % 4; i += 1) {
+    const nx = -vy;
+    const ny = vx;
+    vx = nx;
+    vy = ny;
+  }
+  return { x: vx, y: vy };
+}
+
 export function isGreenAfterimage(state) {
   return state.form === "green" && state.player.greenAfterimage;
 }

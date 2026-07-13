@@ -5,7 +5,7 @@ import {
   HEIGHT, JUMP, MOVE, RED_DASH_DISTANCE, RED_QTE_READY, RED_QTE_TIME, ROWS, TILE, WIDTH,
   WHITE_HOOK_RANGE, WHITE_PLAGUE_SPEED, WHITE_SURFACE_SPEED,
 } from "./constants.js";
-import { transformedRect, isGreenAfterimage, rotatePoint } from "./physics.js";
+import { transformedRect, transformedPoint, transformedPlague, isGreenAfterimage, rotatePoint } from "./physics.js";
 
 function drawRect(ctx, r, fill, stroke) {
   ctx.fillStyle = fill;
@@ -599,10 +599,10 @@ export function draw(ctx, state) {
   for (const g of room.gates || []) drawGate(ctx, transformedRect(state, g));
   for (const h of room.hazards || []) if (!h.disabled) drawHazard(ctx, transformedRect(state, h));
   for (const emitter of room.emitters || []) drawEmitter(ctx, emitter, state);
-  for (const projectile of room.projectiles || []) drawProjectile(ctx, projectile);
-  for (const object of room.fallingObjects || []) if (!object.dead) drawFallingObject(ctx, object);
-  for (const boss of room.bosses || []) drawBoss(ctx, boss);
-  for (const boss of room.dropBosses || []) drawDropBoss(ctx, boss);
+  for (const projectile of room.projectiles || []) drawProjectile(ctx, transformedRect(state, projectile));
+  for (const object of room.fallingObjects || []) if (!object.dead) drawFallingObject(ctx, transformedRect(state, object));
+  for (const boss of room.bosses || []) drawBoss(ctx, transformedRect(state, boss));
+  for (const boss of room.dropBosses || []) drawDropBoss(ctx, transformedRect(state, boss));
   for (const segment of room.lightningSegments || []) drawLightning(ctx, segment, state);
   const lightningDisabled = Boolean(room.lightningDisabled);
   if (!lightningDisabled) {
@@ -621,24 +621,25 @@ export function draw(ctx, state) {
   for (const s of room.switches || []) {
     if (room.bossRoom && s.switchKey === "8,38" && !room.bossDefeated) continue;
     if (isRoom22DropBossSwitchHidden(room)) continue;
-    drawSwitch(ctx, s);
+    drawSwitch(ctx, transformedRect(state, s));
   }
-  for (const s of room.repeatSwitches || []) drawSwitch(ctx, s);
-  for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, s);
+  for (const s of room.repeatSwitches || []) drawSwitch(ctx, transformedRect(state, s));
+  for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, transformedRect(state, s));
   for (const f of room.checkpoints || []) {
     const key = `checkpoint:${room.id}:${f.x},${f.y}`;
-    drawCheckpoint(ctx, f, state.checkpoint?.key === key);
+    drawCheckpoint(ctx, transformedRect(state, f), state.checkpoint?.key === key);
   }
-  for (const e of room.enemies || []) drawEnemy(ctx, e);
+  for (const e of room.enemies || []) drawEnemy(ctx, transformedRect(state, e));
   for (const a of room.anchors) {
+    const point = transformedPoint(state, a);
     ctx.fillStyle = "#f4f2e6";
     ctx.beginPath();
-    ctx.arc(a.x, a.y, 6, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
     ctx.fill();
   }
   for (const p of room.plagueHazards) {
     if (p.disabled) continue;
-    drawPlagueStain(ctx, p, 1);
+    drawPlagueStain(ctx, transformedPlague(state, p), 1);
   }
   for (const p of player.plague) {
     drawPlagueStain(ctx, p, 0.82);
@@ -662,12 +663,12 @@ export function draw(ctx, state) {
       state.checkpoint?.key === `flag:${room.id}`
     );
   }
-  if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken) drawHelmet(ctx, room.helmet);
-  for (const item of room.abilityPickups || []) if (!item.taken && !state.unlockedForms?.has(item.form)) drawAbility(ctx, item);
+  if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken) drawHelmet(ctx, transformedRect(state, room.helmet));
+  for (const item of room.abilityPickups || []) if (!item.taken && !state.unlockedForms?.has(item.form)) drawAbility(ctx, transformedRect(state, item));
   for (const coin of room.coins || []) {
     if (coin.disabled) continue;
     const key = `${room.id}:${coin.x},${coin.y}`;
-    if (!state.collectedCoins?.has(key)) drawCoin(ctx, coin);
+    if (!state.collectedCoins?.has(key)) drawCoin(ctx, transformedRect(state, coin));
   }
 
   if (player.hook && player.hookTime > 0) {

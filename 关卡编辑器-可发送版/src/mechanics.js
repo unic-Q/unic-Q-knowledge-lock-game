@@ -9,7 +9,7 @@ import {
 } from "./constants.js";
 import {
   activeBlocks, findWhiteSurface, rectsOverlap, whiteSurfaceBlocks,
-  transformedRect, isGroundedNow, rotatePoint,
+  transformedRect, transformedPoint, transformedPlague, isGroundedNow, rotatePoint,
 } from "./physics.js";
 
 export function updateNone(state, input, dt) {
@@ -396,7 +396,7 @@ function isWhiteSurfacePlagued(state, playerBody, surface) {
   const n = surface.nx * contact.x + surface.ny * contact.y;
   const a = Math.min(contact.a, contact.b);
   const b = Math.max(contact.a, contact.b);
-  return [...state.player.plague, ...(state.room.plagueHazards || [])].some((p) => {
+  return [...state.player.plague, ...(state.room.plagueHazards || []).map((p) => transformedPlague(state, p))].some((p) => {
     if (!Number.isFinite(p.a) || !Number.isFinite(p.b)) return false;
     if (p.nx !== surface.nx || p.ny !== surface.ny) return false;
     if (Math.abs(p.n - n) > WHITE_SNAP) return false;
@@ -573,7 +573,7 @@ function findHookAnchor(state, sx, sy, ex, ey, toleranceTiles) {
   const segDy = ey - sy;
   const segLen2 = segDx * segDx + segDy * segDy || 1;
   const candidates = [
-    ...(state.room.anchors || []),
+    ...(state.room.anchors || []).map((anchor) => transformedPoint(state, anchor)),
     ...(state.room.fallingObjects || [])
       .filter((object) => !object.dead && object.kind === "anchor")
       .map((object) => ({ x: object.x + object.w / 2, y: object.y + object.h / 2 })),
@@ -863,6 +863,12 @@ function rotateBlackWorld(state, delta) {
   const center = rotatePoint(player.x + player.w / 2, player.y + player.h / 2, delta);
   player.x = center.x - player.w / 2;
   player.y = center.y - player.h / 2;
+  for (const grave of player.graves) {
+    const p = rotatePoint(grave.x + 14, grave.y + 16, delta);
+    grave.x = p.x - 14;
+    grave.y = p.y - 16;
+  }
+  player.plague = player.plague.map((plague) => transformedPlague({ worldRot: delta }, plague));
   player.vx = 0;
   player.vy = 0;
   state.worldRot = (state.worldRot + delta) % 4;

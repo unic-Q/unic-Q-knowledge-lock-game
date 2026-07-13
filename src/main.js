@@ -6,7 +6,7 @@ import {
 } from "./constants.js";
 import { makePlayer } from "./player.js";
 import { parseRoom, worldRooms } from "./world.js";
-import { rectsOverlap, moveAxis, pointNearSegment, transformedRect, rotatePoint, activeBlocks } from "./physics.js";
+import { rectsOverlap, moveAxis, pointNearSegment, transformedRect, transformedPlague, rotatePoint, activeBlocks } from "./physics.js";
 import { updateNone, updateWhite, updateRed, updateGreen, updateBlack } from "./mechanics.js";
 import { draw } from "./render.js";
 
@@ -306,7 +306,7 @@ function finishRespawn(reason = "unknown") {
   if (state.form !== "none" && !state.unlockedForms.has(state.form)) state.form = state.unlockedForms.values().next().value || "none";
   state.selectedForm = state.form === "none" ? "red" : state.form;
   state.player = makePlayer(state.checkpoint.x, state.checkpoint.y);
-  state.worldRot = 0;
+  state.worldRot = state.checkpoint.worldRot ?? 0;
   state.helmetHeld = 0;
   state.gravityScale = 1;
   state.wasInGravityZone = false;
@@ -831,20 +831,20 @@ function handlePickups() {
   for (const coin of room.coins || []) {
     if (coin.disabled) continue;
     const key = `${room.id}:${coin.x},${coin.y}`;
-    if (state.collectedCoins.has(key) || !rectsOverlap(player, coin)) continue;
+    if (state.collectedCoins.has(key) || !rectsOverlap(player, transformedRect(state, coin))) continue;
     state.collectedCoins.add(key);
     coin.taken = true;
     state.shake = Math.max(state.shake, 2);
     updateHud();
   }
   for (const object of room.fallingObjects || []) {
-    if (object.dead || object.kind !== "coin" || !rectsOverlap(player, object)) continue;
+    if (object.dead || object.kind !== "coin" || !rectsOverlap(player, transformedRect(state, object))) continue;
     state.collectedCoins.add(`${room.id}:fall:${object.id}`);
     object.dead = true;
     state.shake = Math.max(state.shake, 2);
     updateHud();
   }
-  if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, room.helmet)) {
+  if (room.helmet && !state.worldRooms[state.roomIndex].helmet.taken && rectsOverlap(player, transformedRect(state, room.helmet))) {
     state.worldRooms[state.roomIndex].helmet.taken = true;
     state.helmetOwned = true;
     state.unlockedForms.add("red");
@@ -861,7 +861,7 @@ function handlePickups() {
       item.taken = true;
       continue;
     }
-    if (item.taken || !rectsOverlap(player, item)) continue;
+    if (item.taken || !rectsOverlap(player, transformedRect(state, item))) continue;
     if (!state.helmetOwned) {
       state.helmetOwned = true;
       state.checkpoint.helmetOwned = true;
@@ -880,22 +880,23 @@ function handlePickups() {
 function handleHazards() {
   const { player, room } = state;
   for (const projectile of room.projectiles || []) {
-    if (!rectsOverlap(expandedRollRect(player), projectile)) continue;
+    if (!rectsOverlap(expandedRollRect(player), transformedRect(state, projectile))) continue;
     if (projectileIgnoredByForm(projectile)) continue;
     if (!surviveHazard(player)) return;
   }
   for (const h of room.hazards || []) {
     if (h.disabled) continue;
     const canIgnore = h.type === "electric" && state.form === "green" && player.greenAfterimage;
-    if (!canIgnore && rectsOverlap(expandedRollRect(player), h)) {
+    if (!canIgnore && rectsOverlap(expandedRollRect(player), transformedRect(state, h))) {
       if (!surviveHazard(player)) return;
     }
   }
   if (state.form !== "white") {
     for (const p of room.plagueHazards) {
       if (p.disabled) continue;
-      if (!rectTouchesPlague(player, p, 15)) continue;
-      if (protectSideHazard(player, plagueHazardSide(player, p, 15))) continue;
+      const plague = transformedPlague(state, p);
+      if (!rectTouchesPlague(player, plague, 15)) continue;
+      if (protectSideHazard(player, plagueHazardSide(player, plague, 15))) continue;
       if (!surviveHazard(player)) return;
     }
     if (player.plagueGrace <= 0) {
@@ -908,8 +909,8 @@ function handleHazards() {
   }
   if (state.form !== "green") {
     for (let i = 1; i < player.graves.length; i += 1) {
-      const a = player.graves[i - 1];
-      const b = player.graves[i];
+      const a = { x: player.graves[i - 1].x + 14, y: player.graves[i - 1].y + 16 };
+      const b = { x: player.graves[i].x + 14, y: player.graves[i].y + 16 };
       if (pointNearSegment(player.x + 12, player.y + 14, a, b) >= 8) continue;
       if (protectSideHazard(player, segmentHazardSide(player, a, b, 8))) continue;
       if (!surviveHazard(player)) return;
@@ -927,10 +928,11 @@ function handleHazards() {
   }
   for (const object of room.fallingObjects || []) {
     if (object.dead) continue;
-    if (object.kind === "spike" && rectsOverlap(expandedRollRect(player), object)) {
+    const objectRect = transformedRect(state, object);
+    if (object.kind === "spike" && rectsOverlap(expandedRollRect(player), objectRect)) {
       if (!surviveHazard(player)) return;
     }
-    if (object.kind === "plague" && state.form !== "white" && rectsOverlap(player, object)) {
+    if (object.kind === "plague" && state.form !== "white" && rectsOverlap(player, objectRect)) {
       if (!surviveHazard(player)) return;
     }
     if (object.kind === "lightning" && state.form !== "green") {
@@ -1167,10 +1169,10 @@ function updateBoss(dt) {
 
 function handleBossHazards() {
   const boss = state.room.bosses?.[0];
-  if (boss && boss.state !== "waiting" && boss.state !== "intro" && rectsOverlap(state.player, bossBody(boss))) surviveHazard(state.player);
+  if (boss && boss.state !== "waiting" && boss.state !== "intro" && rectsOverlap(state.player, transformedRect(state, bossBody(boss)))) surviveHazard(state.player);
   for (const dropBoss of state.room.dropBosses || []) {
     if (dropBoss.enabled === false || dropBoss.defeated) continue;
-    if (rectsOverlap(state.player, dropBoss)) hitDropBoss(dropBoss);
+    if (rectsOverlap(state.player, transformedRect(state, dropBoss))) hitDropBoss(dropBoss);
   }
 }
 
@@ -1789,8 +1791,9 @@ function handleSwitches(dt = 0) {
   const { room, player } = state;
   const bodyCanPress = !(state.form === "green" && player.greenAfterimage);
   for (const s of room.switches || []) {
-    const body = bodyCanPress && rectsOverlap(player, s);
-    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
+    const switchRect = transformedRect(state, s);
+    const body = bodyCanPress && rectsOverlap(player, switchRect);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, switchRect));
     const isFinalBossSwitch = room.bossRoom && s.switchKey === "8,38";
     const isDropBossFinalSwitch = isDropBossSwitchLocked(room) || isDropBossSwitchUnlocked(room);
     if (isFinalBossSwitch || isDropBossFinalSwitch) {
@@ -1812,26 +1815,29 @@ function handleSwitches(dt = 0) {
     }
   }
   for (const s of room.repeatSwitches || []) {
-    const body = bodyCanPress && rectsOverlap(player, s);
-    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, s));
+    const switchRect = transformedRect(state, s);
+    const body = bodyCanPress && rectsOverlap(player, switchRect);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, switchRect));
     const overlapping = body || grave;
     if (overlapping && !s.wasOverlapping) s.pressed = !s.pressed;
     s.wasOverlapping = overlapping;
   }
   for (const s of room.leverSwitches || []) {
-    const overlapping = rectsOverlap(player, s);
+    const switchRect = transformedRect(state, s);
+    const overlapping = rectsOverlap(player, switchRect);
     if (!overlapping) {
       s.lastSide = null;
       continue;
     }
-    const side = leverSide(player, s);
+    const side = leverSide(player, switchRect);
     const opposite = oppositeSide(s.initialSide || "right");
     if (s.lastSide === (s.initialSide || "right") && side === opposite) s.pressed = !s.pressed;
     s.lastSide = side;
   }
   for (const trigger of room.hiddenTriggers || []) {
-    const body = bodyCanPress && rectsOverlap(player, trigger);
-    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, trigger));
+    const triggerRect = transformedRect(state, trigger);
+    const body = bodyCanPress && rectsOverlap(player, triggerRect);
+    const grave = player.graves.some((g) => rectsOverlap({ x: g.x, y: g.y, w: 28, h: 32 }, triggerRect));
     const overlapping = body || grave;
     if (trigger.once && overlapping) trigger.latched = true;
     trigger.pressed = trigger.once ? trigger.latched : overlapping;
@@ -2100,12 +2106,13 @@ function oppositeSide(side) {
 function handleCheckpoints() {
   const { room, player } = state;
   for (const cp of room.checkpoints || []) {
-    if (!rectsOverlap(player, cp)) continue;
+    const cpRect = transformedRect(state, cp);
+    if (!rectsOverlap(player, cpRect)) continue;
     cp.active = true;
     state.checkpoint = {
       roomIndex: state.roomIndex,
-      x: cp.x + cp.w / 2 - player.w / 2,
-      y: cp.y + cp.h - player.h,
+      x: cpRect.x + cpRect.w / 2 - player.w / 2,
+      y: cpRect.y + cpRect.h - player.h,
       key: `checkpoint:${room.id}:${cp.x},${cp.y}`,
       form: state.form,
       helmetOwned: state.helmetOwned,
@@ -2123,8 +2130,9 @@ function handleEnemies() {
       damageEnemy(enemy, 1);
       continue;
     }
-    if (!rectsOverlap(player, enemy)) continue;
-    const blackStomp = state.form === "black" && player.vy > 120 && player.y + player.h <= enemy.y + 12;
+    const enemyRect = transformedRect(state, enemy);
+    if (!rectsOverlap(player, enemyRect)) continue;
+    const blackStomp = state.form === "black" && player.vy > 120 && player.y + player.h <= enemyRect.y + 12;
     if (state.form === "red" && player.redDash) {
       damageEnemy(enemy, 1);
       player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
@@ -2142,7 +2150,7 @@ function handleEnemies() {
   }
   for (const object of room.fallingObjects || []) {
     if (object.dead || object.kind !== "enemy") continue;
-    if (!rectsOverlap(player, object)) continue;
+    if (!rectsOverlap(player, transformedRect(state, object))) continue;
     if (state.form === "red" && player.redDash) {
       object.dead = true;
       player.redQteBonus = Math.min(0.28, player.redQteBonus + 0.16);
@@ -2169,13 +2177,21 @@ function damageEnemy(enemy, amount = 1) {
 }
 
 function canWhiteKill(enemy) {
-  return state.player.plague.some((p) => touchesPlague(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, p, 18));
+  const enemyRect = transformedRect(state, enemy);
+  const cx = enemyRect.x + enemyRect.w / 2;
+  const cy = enemyRect.y + enemyRect.h / 2;
+  return state.player.plague.some((p) => touchesPlague(cx, cy, p, 18));
 }
 
 function canGreenLineKill(enemy) {
   const { player } = state;
+  const enemyRect = transformedRect(state, enemy);
+  const cx = enemyRect.x + enemyRect.w / 2;
+  const cy = enemyRect.y + enemyRect.h / 2;
   for (let i = 1; i < player.graves.length; i += 1) {
-    if (pointNearSegment(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, player.graves[i - 1], player.graves[i]) < 12) return true;
+    const a = { x: player.graves[i - 1].x + 14, y: player.graves[i - 1].y + 16 };
+    const b = { x: player.graves[i].x + 14, y: player.graves[i].y + 16 };
+    if (pointNearSegment(cx, cy, a, b) < 12) return true;
   }
   return false;
 }
