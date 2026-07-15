@@ -5,39 +5,241 @@
     "####################",
     "#..................#",
     "...................#",
-    "...................#",
+    "F..................#",
+    "##.................#",
+    "#..................#",
+    "#.......V..........#",
     "#..................#",
     "#..................#",
     "#..................#",
     "#..................#",
     "#..................#",
+    "#..........>.......#",
+    "#.........^#v......#",
+    "#..........<.......#",
     "#..................#",
     "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
-    "#..................#",
+    "#CCCCCCCCCCCCCCCCCC#",
+    "#CCCCCCCCCCCCCCCCCC#",
     "####################"
   ],
-  "surfacePlagues": [],
-  "controlBindings": [],
-  "lightningChains": [],
-  "lightningNodes": [],
+  "surfacePlagues": [
+    {
+      "x": 3,
+      "y": 7,
+      "face": 0
+    },
+    {
+      "x": 5,
+      "y": 7,
+      "face": 0
+    },
+    {
+      "x": 4,
+      "y": 7,
+      "face": 0
+    }
+  ],
+  "controlBindings": [
+    {
+      "switch": {
+        "x": 11,
+        "y": 12
+      },
+      "targets": [
+        {
+          "type": "plague",
+          "x": 5,
+          "y": 7,
+          "face": 0
+        }
+      ]
+    },
+    {
+      "switch": {
+        "x": 11,
+        "y": 14
+      },
+      "targets": [
+        {
+          "type": "plague",
+          "x": 4,
+          "y": 7,
+          "face": 0
+        }
+      ]
+    },
+    {
+      "switch": {
+        "x": 10,
+        "y": 13
+      },
+      "targets": [
+        {
+          "type": "plague",
+          "x": 3,
+          "y": 7,
+          "face": 0
+        }
+      ]
+    },
+    {
+      "switch": {
+        "x": 12,
+        "y": 13
+      },
+      "targets": [
+        {
+          "type": "lightning",
+          "chain": 4,
+          "segment": 0
+        }
+      ]
+    }
+  ],
+  "lightningChains": [
+    {
+      "nodes": [
+        {
+          "x": 4,
+          "y": 17,
+          "face": 0
+        },
+        {
+          "x": 4,
+          "y": 8,
+          "face": 2
+        },
+        {
+          "x": 0,
+          "y": 6,
+          "face": 1
+        }
+      ],
+      "closed": false
+    },
+    {
+      "nodes": [
+        {
+          "x": 4,
+          "y": 8,
+          "face": 2
+        }
+      ],
+      "closed": false
+    },
+    {
+      "nodes": [
+        {
+          "x": 4,
+          "y": 8,
+          "face": 2
+        }
+      ],
+      "closed": false
+    },
+    {
+      "nodes": [
+        {
+          "x": 4,
+          "y": 8,
+          "face": 2
+        }
+      ],
+      "closed": false
+    },
+    {
+      "nodes": [
+        {
+          "x": 4,
+          "y": 8,
+          "face": 2
+        },
+        {
+          "x": 8,
+          "y": 6,
+          "face": 0
+        }
+      ],
+      "closed": false
+    }
+  ],
+  "lightningNodes": [
+    {
+      "x": 4,
+      "y": 17,
+      "face": 0
+    },
+    {
+      "x": 4,
+      "y": 8,
+      "face": 2
+    },
+    {
+      "x": 0,
+      "y": 6,
+      "face": 1
+    },
+    {
+      "x": 4,
+      "y": 8,
+      "face": 2
+    },
+    {
+      "x": 4,
+      "y": 8,
+      "face": 2
+    },
+    {
+      "x": 4,
+      "y": 8,
+      "face": 2
+    },
+    {
+      "x": 4,
+      "y": 8,
+      "face": 2
+    },
+    {
+      "x": 8,
+      "y": 6,
+      "face": 0
+    }
+  ],
   "emitters": [],
   "sequencers": [],
-  "targetDefaults": {},
+  "targetDefaults": {
+    "plague:5,7,0": true,
+    "plague:4,7,0": true,
+    "plague:3,7,0": true,
+    "lightning:4,0": true
+  },
   "enemyPatrols": [],
   "advancedEnemies": [],
-  "movingPlatforms": [],
+  "movingPlatforms": [
+    {
+      "x": 8,
+      "y": 6,
+      "path": [
+        {
+          "x": 8,
+          "y": 6
+        },
+        {
+          "x": 17,
+          "y": 6
+        }
+      ],
+      "speed": 2,
+      "loop": true
+    }
+  ],
   "platformGenerators": [],
   "dropBosses": [],
   "routeBosses": [],
   "finalBosses": [],
   "gravityZones": [],
+  "npcDialogs": [],
   "spawn": {
     "x": 4,
     "y": 68

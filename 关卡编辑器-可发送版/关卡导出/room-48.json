@@ -73,6 +73,7 @@
   "routeBosses": [],
   "finalBosses": [],
   "gravityZones": [],
+  "npcDialogs": [],
   "spawn": {
     "x": 36,
     "y": 196

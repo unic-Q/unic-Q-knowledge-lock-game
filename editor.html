@@ -111,6 +111,26 @@
     button.action-btn.delete-room {
       margin: 16px 0 10px;
     }
+    .editor-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .editor-modal-panel {
+      width: 680px;
+      max-height: 82vh;
+      overflow: auto;
+      background: #202b38;
+      border: 1px solid #4b5a6b;
+      border-radius: 8px;
+      padding: 14px;
+      color: #dfe8ed;
+      font-family: Microsoft YaHei, sans-serif;
+    }
     textarea {
       width: 100%;
       height: 80px;
@@ -268,6 +288,7 @@
       { char: 'v', name: '下扳机', category: '触发器', color: '#d89b63', desc: '只能从下侧推到上侧时切换' },
       { char: 'I', name: '一次隐形触发', category: '触发器', color: '#53697a', desc: '游戏中不可见，触发后永久保持' },
       { char: 'T', name: '多次隐形触发', category: '触发器', color: '#53697a', desc: '游戏中不可见，离开后复位' },
+      { char: 'n', name: 'NPC对话', category: '触发器', color: '#6f5aa8', desc: '碰到后显示对话文本' },
       { char: 'F', name: '复活点', category: '触发器', color: '#f4c95d', desc: '死亡后在这里复活' },
       { char: 'D', name: '门', category: '机关', color: '#6f7884', desc: '全部关联开关满足后打开' },
       { char: 'A', name: '锚点', category: '机关', color: '#f4c95d', desc: '白骑士钩锁点' },
@@ -297,6 +318,7 @@
     let routeBosses = [];
     let finalBosses = [];
     let gravityZones = [];
+    let npcDialogs = [];
     let targetDefaults = {};
     let activeLightningChain = -1;
     let enemyPatrols = [];
@@ -340,6 +362,79 @@
     const RED_DASH_DISTANCE = TILE * 4;
     const WHITE_HOOK_RANGE = TILE * 6;
 
+    function editorModalOpen() {
+      return Boolean(document.querySelector('.editor-modal-overlay'));
+    }
+
+    function stopEditorPointerState() {
+      isPainting = false;
+      lastPaintKey = '';
+      enemyDrag = null;
+      emitterDrag = null;
+      movingPlatformDrag = null;
+      platformGeneratorDrag = null;
+      gravityZoneDrag = null;
+      mapDrag = null;
+      mapPan = null;
+    }
+
+    function guardEditorModalEvent(event) {
+      if (!editorModalOpen()) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+
+    function openNpcPanel(x, y) {
+      stopEditorPointerState();
+      const existing = npcDialogs.find(item => item.x === x && item.y === y) || {};
+      const overlay = document.createElement('div');
+      overlay.className = 'editor-modal-overlay';
+      const panel = document.createElement('div');
+      panel.className = 'editor-modal-panel';
+      panel.style.width = '520px';
+      panel.innerHTML = `
+        <h2 style="font-size:18px;margin:0 0 10px;color:#f4c95d;">NPC对话</h2>
+        <label style="display:block;font-size:12px;color:#9fb0c2;margin-bottom:6px;">名字</label>
+        <input id="npc-name" style="width:100%;padding:8px;margin-bottom:10px;background:#151820;border:1px solid #3b4757;border-radius:4px;color:#dfe8ed;" value="${escapeHtml(existing.name || 'NPC')}">
+        <label style="display:block;font-size:12px;color:#9fb0c2;margin-bottom:6px;">对话内容</label>
+        <textarea id="npc-text" style="height:120px;margin-bottom:10px;">${escapeHtml(existing.text || '……')}</textarea>
+        <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px;"><input type="checkbox" id="npc-once" ${existing.once ? 'checked' : ''}>只触发一次</label>
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn" id="npc-save" style="width:auto;padding:8px 14px;">保存</button>
+          <button class="action-btn danger" id="npc-cancel" style="width:auto;padding:8px 14px;">取消</button>
+        </div>
+      `;
+      overlay.appendChild(panel);
+      overlay.addEventListener('mousedown', event => event.stopPropagation());
+      overlay.addEventListener('mousemove', event => event.stopPropagation());
+      overlay.addEventListener('mouseup', event => event.stopPropagation());
+      overlay.addEventListener('click', event => event.stopPropagation());
+      document.body.appendChild(overlay);
+      panel.querySelector('#npc-save').addEventListener('click', () => {
+        placeCell(x, y, 'n', false, false);
+        npcDialogs = npcDialogs.filter(item => item.x !== x || item.y !== y);
+        npcDialogs.push({
+          x,
+          y,
+          name: panel.querySelector('#npc-name').value.trim() || 'NPC',
+          text: panel.querySelector('#npc-text').value.trim() || '……',
+          once: panel.querySelector('#npc-once').checked
+        });
+        overlay.remove();
+        saveRoomData();
+        render();
+      });
+      panel.querySelector('#npc-cancel').addEventListener('click', () => overlay.remove());
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    }
     function applyRoomSize(size) {
       roomSize = Number(size) === 40 ? 40 : 20;
       COLS = roomSize;
@@ -549,7 +644,7 @@
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
             const size = roomSizeFromData(parsed);
-            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], spawn: defaultSpawn(size) };
+            return { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], npcDialogs: [], spawn: defaultSpawn(size) };
           }
           const size = roomSizeFromData(parsed);
           return {
@@ -569,6 +664,7 @@
             routeBosses: parsed.routeBosses || [],
             finalBosses: parsed.finalBosses || [],
             gravityZones: parsed.gravityZones || [],
+            npcDialogs: parsed.npcDialogs || [],
             spawn: parsed.spawn || defaultSpawn(size)
           };
         } catch {
@@ -601,6 +697,7 @@
         routeBosses,
         finalBosses,
         gravityZones,
+        npcDialogs,
         spawn
       };
       localStorage.setItem(`room_${currentRoom}`, JSON.stringify(data));
@@ -630,6 +727,7 @@
         routeBosses,
         finalBosses,
         gravityZones,
+        npcDialogs,
         spawn
       };
     }
@@ -651,7 +749,8 @@
         !(data?.dropBosses || []).length &&
         !(data?.routeBosses || []).length &&
         !(data?.finalBosses || []).length &&
-        !(data?.gravityZones || []).length;
+        !(data?.gravityZones || []).length &&
+        !(data?.npcDialogs || []).length;
     }
 
     async function exportedRoomData(roomId) {
@@ -680,6 +779,7 @@
           routeBosses: found.routeBosses || [],
           finalBosses: found.finalBosses || [],
           gravityZones: found.gravityZones || [],
+          npcDialogs: found.npcDialogs || [],
           spawn: found.spawn || defaultSpawn(size)
         };
       } catch {
@@ -716,6 +816,7 @@
             routeBosses: roomData.routeBosses || [],
             finalBosses: roomData.finalBosses || [],
             gravityZones: roomData.gravityZones || [],
+            npcDialogs: roomData.npcDialogs || [],
             spawn: roomData.spawn || defaultSpawn(size)
           }));
         }
@@ -760,6 +861,7 @@
             routeBosses: target.routeBosses || [],
             finalBosses: target.finalBosses || [],
             gravityZones: target.gravityZones || [],
+            npcDialogs: target.npcDialogs || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -773,7 +875,7 @@
       const parsed = JSON.parse(stored);
       const size = roomSizeFromData(parsed);
       const data = Array.isArray(parsed)
-        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], spawn: defaultSpawn(size) }
+        ? { roomSize: size, blocks: normalizeGrid(parsed, size), surfacePlagues: [], controlBindings: [], lightningChains: [], emitters: [], sequencers: [], targetDefaults: {}, enemyPatrols: [], advancedEnemies: [], movingPlatforms: [], platformGenerators: [], dropBosses: [], routeBosses: [], gravityZones: [], npcDialogs: [], spawn: defaultSpawn(size) }
         : {
           roomSize: size,
           blocks: normalizeGrid(parsed.blocks, size),
@@ -812,6 +914,7 @@
         routeBosses: data.routeBosses || [],
         finalBosses: data.finalBosses || [],
         gravityZones: data.gravityZones || [],
+        npcDialogs: data.npcDialogs || [],
         spawn: data.spawn
       };
     }
@@ -1078,6 +1181,7 @@
       routeBosses = data.routeBosses || [];
       finalBosses = data.finalBosses || [];
       gravityZones = data.gravityZones || [];
+      npcDialogs = data.npcDialogs || [];
       pendingControlTargets = [];
       enemyDrag = null;
       movingPlatformDrag = null;
@@ -2075,11 +2179,16 @@
         fillRow = false;
         fillCol = false;
       }
+      if (char === 'n') {
+        fillRow = false;
+        fillCol = false;
+      }
       const setOne = (cx, cy) => {
         enemyPatrols = enemyPatrols.filter(patrol => patrol.start.x !== cx || patrol.start.y !== cy);
         advancedEnemies = advancedEnemies.filter(enemy => !(enemy.path || []).some(point => point.x === cx && point.y === cy));
         emitters = emitters.filter(item => item.x !== cx || item.y !== cy);
         sequencers = sequencers.filter(item => item.x !== cx || item.y !== cy);
+        npcDialogs = npcDialogs.filter(item => item.x !== cx || item.y !== cy);
         const removedMovingPlatform = movingPlatforms.some(item => item.x === cx && item.y === cy);
         movingPlatforms = movingPlatforms.filter(item => item.x !== cx || item.y !== cy);
         controlBindings = controlBindings
@@ -2235,10 +2344,11 @@
         alert('当前房间没有可控制对象。请先放置门、尖刺、金币、瘟疫、闪电链、灾厄喷口、敌人、移动平台、平台生成器、尖刺生成器或掉落Boss。');
         return;
       }
+      stopEditorPointerState();
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:center;justify-content:center;';
+      overlay.className = 'editor-modal-overlay';
       const panel = document.createElement('div');
-      panel.style.cssText = 'width:680px;max-height:82vh;overflow:auto;background:#202b38;border:1px solid #4b5a6b;border-radius:8px;padding:14px;color:#dfe8ed;font-family:Microsoft YaHei,sans-serif;';
+      panel.className = 'editor-modal-panel';
       panel.innerHTML = `
         <h2 style="font-size:18px;margin:0 0 10px;color:#f4c95d;">时序装置事件面板</h2>
         <div style="font-size:12px;color:#9fb0c2;margin-bottom:10px;">每一行是一组事件；先填时间点，再选动作和目标。同一行多选目标表示同时发生。</div>
@@ -2251,6 +2361,12 @@
         </div>
       `;
       overlay.appendChild(panel);
+      overlay.addEventListener('mousedown', (event) => event.stopPropagation());
+      overlay.addEventListener('mousemove', (event) => event.stopPropagation());
+      overlay.addEventListener('mouseup', (event) => event.stopPropagation());
+      overlay.addEventListener('click', (event) => event.stopPropagation());
+      panel.addEventListener('mousedown', (event) => event.stopPropagation());
+      panel.addEventListener('click', (event) => event.stopPropagation());
       document.body.appendChild(overlay);
       const rows = panel.querySelector('#seq-rows');
       const addRow = (time = rows.children.length ? rows.children.length : 0, duration = 0.5, action = 'trigger') => {
@@ -2301,7 +2417,6 @@
         render();
       });
     }
-
     function clampNumber(value, min, max, fallback) {
       const number = Number(value);
       if (!Number.isFinite(number)) return fallback;
@@ -2939,6 +3054,11 @@
       const key = `${x},${y},${char}`;
       if (key === lastPaintKey) return;
       lastPaintKey = key;
+      if (char === 'n' && paintButton !== 2) {
+        openNpcPanel(x, y);
+        isPainting = false;
+        return;
+      }
       if (currentChar === '~') {
         if (paintButton === 2) {
           removeLightningNodeNearPointer(e);
@@ -3027,6 +3147,11 @@
         if (hit) removed = true;
         return !hit;
       });
+      npcDialogs = npcDialogs.filter((item) => {
+        const hit = x === item.x && y === item.y;
+        if (hit) removed = true;
+        return !hit;
+      });
       if (!removed) return false;
       const removedKeys = new Set([...removedGeneratorKeys, ...removedDropBossKeys, ...removedRouteBossKeys, ...removedFinalBossKeys]);
       controlBindings = controlBindings
@@ -3042,6 +3167,7 @@
     }
 
     canvas.addEventListener('mousemove', (e) => {
+      if (guardEditorModalEvent(e)) return;
       if (viewMode === 'world') {
         const point = canvasPoint(e);
         if (mapDrag) {
@@ -3099,6 +3225,7 @@
     });
 
     canvas.addEventListener('mouseleave', () => {
+      if (editorModalOpen()) return;
       cursorX = -1;
       cursorY = -1;
       isPainting = false;
@@ -3113,6 +3240,7 @@
     });
 
     canvas.addEventListener('mousedown', (e) => {
+      if (guardEditorModalEvent(e)) return;
       e.preventDefault();
       if (viewMode === 'world') {
         if (e.button !== 0) return;
@@ -3203,6 +3331,7 @@
     });
 
     window.addEventListener('mouseup', () => {
+      if (editorModalOpen()) return;
       if (enemyDrag) {
         finishEnemyPatrol();
         return;
@@ -3237,6 +3366,7 @@
     });
 
     canvas.addEventListener('dblclick', (e) => {
+      if (guardEditorModalEvent(e)) return;
       if (viewMode !== 'world') return;
       const room = mapRoomAt(canvasPoint(e));
       if (!room) return;
@@ -3247,10 +3377,17 @@
       loadRoom(room.room);
     });
 
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (guardEditorModalEvent(e)) return;
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (editorModalOpen()) {
+        if (e.key === 'Escape') document.querySelector('.editor-modal-overlay')?.remove();
+        return;
+      }
 
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9) {
@@ -3264,7 +3401,7 @@
         if (idx < BLOCK_TYPES.length) selectBlock(BLOCK_TYPES[idx].char);
       }
 
-      const shortcuts = { '#': '#', '=': '=', '-': '-', 'u': 'U', 'l': 'L', 'j': 'J', '.': '.', 'h': 'H', '!': '!', '~': '~', 'm': 'M', 'k': 'K', 's': 'S', 'i': 'I', 't': 'T', 'f': 'F', 'd': 'D', 'g': 'G', 'r': 'R', 'w': 'W', 'b': 'B', 'a': 'A', 'p': 'P', 'c': 'C' };
+      const shortcuts = { '#': '#', '=': '=', '-': '-', 'u': 'U', 'l': 'L', 'j': 'J', '.': '.', 'h': 'H', '!': '!', '~': '~', 'm': 'M', 'k': 'K', 's': 'S', 'i': 'I', 't': 'T', 'f': 'F', 'd': 'D', 'g': 'G', 'r': 'R', 'w': 'W', 'b': 'B', 'a': 'A', 'p': 'P', 'c': 'C', 'n': 'n' };
       if (shortcuts[e.key.toLowerCase()]) {
         selectBlock(shortcuts[e.key.toLowerCase()]);
       }
@@ -3344,6 +3481,7 @@
       routeBosses = [];
       finalBosses = [];
       gravityZones = [];
+      npcDialogs = [];
       pathDraft = null;
       pendingControlTargets = [];
       saveRoomData();
@@ -3401,6 +3539,7 @@
               dropBosses: roomData.dropBosses || [],
               routeBosses: roomData.routeBosses || [],
               gravityZones: roomData.gravityZones || [],
+              npcDialogs: roomData.npcDialogs || [],
               spawn: roomData.spawn || defaultSpawn(size)
             };
             localStorage.setItem(`room_${roomData.room}`, JSON.stringify(normalized));
@@ -3422,6 +3561,7 @@
           dropBosses = data.dropBosses || [];
           routeBosses = data.routeBosses || [];
           gravityZones = data.gravityZones || [];
+          npcDialogs = data.npcDialogs || [];
           spawn = data.spawn || defaultSpawn();
           if (data.room) currentRoom = data.room;
           saveRoomData();
@@ -3446,6 +3586,7 @@
         enemyPatrols = [];
         advancedEnemies = [];
         gravityZones = [];
+        npcDialogs = [];
         movingPlatforms = [];
         platformGenerators = [];
         dropBosses = [];
@@ -3485,6 +3626,7 @@
             routeBosses: target.routeBosses || [],
             finalBosses: target.finalBosses || [],
             gravityZones: target.gravityZones || [],
+            npcDialogs: target.npcDialogs || [],
             spawn: target.spawn || defaultSpawn(roomSizeFromData(target))
           };
         }
@@ -3516,6 +3658,7 @@
         routeBosses: roomData.routeBosses || [],
         finalBosses: roomData.finalBosses || [],
         gravityZones: roomData.gravityZones || [],
+        npcDialogs: roomData.npcDialogs || [],
         playtestLoadout: loadout
       };
       localStorage.setItem('editorPlaytestRoom', JSON.stringify(data));

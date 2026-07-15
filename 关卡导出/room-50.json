@@ -1,5 +1,6 @@
 {
   "room": 50,
+  "roomSize": 20,
   "blocks": [
     "####################",
     ".D.......#....~~...#",
@@ -22,7 +23,6 @@
     "####################",
     "####################"
   ],
-  "roomSize": 20,
   "surfacePlagues": [],
   "controlBindings": [
     {
@@ -55,10 +55,10 @@
     }
   ],
   "lightningChains": [],
+  "lightningNodes": [],
   "emitters": [],
   "sequencers": [],
   "targetDefaults": {},
-  "lightningNodes": [],
   "enemyPatrols": [
     {
       "start": {
@@ -91,6 +91,14 @@
       }
     }
   ],
+  "advancedEnemies": [],
+  "movingPlatforms": [],
+  "platformGenerators": [],
+  "dropBosses": [],
+  "routeBosses": [],
+  "finalBosses": [],
+  "gravityZones": [],
+  "npcDialogs": [],
   "spawn": {
     "x": 548,
     "y": 196

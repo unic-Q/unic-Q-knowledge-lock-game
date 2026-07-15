@@ -805,8 +805,13 @@ export function updateGreen(state, input, dt) {
   if (input.up) {
     const g = player.graves[player.graves.length - 1];
     if (player.greenAfterimage && g) {
-      player.x = g.x;
-      player.y = g.y - player.h;
+      const target = { x: g.x, y: g.y - player.h, w: player.w, h: player.h };
+      if (activeBlocks(state).some((block) => rectsOverlap(target, block))) {
+        state.pendingDeathReason = "greenRecallCrush";
+        return;
+      }
+      player.x = target.x;
+      player.y = target.y;
       player.vx = 0;
       player.vy = 0;
       player.onGround = true;

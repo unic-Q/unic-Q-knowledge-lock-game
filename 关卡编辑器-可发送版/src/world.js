@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 import {
   COLS, ROWS, TILE, ROOM_FLOOR, EXIT_TOP_X, EXIT_BOTTOM_X, FLAG_W, FLAG_H,
@@ -647,6 +647,7 @@ export function parseRoom(data) {
   const abilityPickups = [];
   const coins = [];
   const hiddenTriggers = [];
+  const npcs = [];
   const bosses = [];
   const emitters = (data.emitters || []).map((item, index) => ({
     index,
@@ -737,6 +738,20 @@ export function parseRoom(data) {
         latched: false,
         switchKey: `${x},${y}`,
       });
+      if (cell === "n") {
+        const dialog = (data.npcDialogs || []).find((item) => Number(item.x) === x && Number(item.y) === y);
+        npcs.push({
+          x: b.x + 4,
+          y: b.y + 2,
+          w: TILE - 8,
+          h: TILE - 2,
+          name: String(dialog?.name || "NPC"),
+          text: String(dialog?.text || "……"),
+          once: Boolean(dialog?.once),
+          shown: false,
+          key: `npc:${x},${y}`,
+        });
+      }
       if (cell === "A") anchors.push({ x: b.x + TILE / 2, y: b.y + TILE / 2 });
       if (cell === "P") {
         plagueHazards.push({
@@ -898,6 +913,7 @@ export function parseRoom(data) {
     checkpoints,
     abilityPickups,
     coins,
+    npcs,
     emitters,
     sequencers,
     lightningChains,

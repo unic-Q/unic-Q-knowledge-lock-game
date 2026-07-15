@@ -55,6 +55,7 @@ const state = {
   roomIndexById: new Map(worldRooms.map((room, index) => [room.id, index])),
   deathTimer: 0,
   deathReason: null,
+  pendingDeathReason: null,
   gravityScale: 1,
   wasInGravityZone: false,
   gravityZoneTime: 0,
@@ -65,6 +66,7 @@ const state = {
   blockedFormTimer: 0,
   finalBossForbiddenForm: null,
   finalBossForbiddenTimer: 0,
+  currentDialog: null,
 };
 
 function logEvent(type, data = {}) {
@@ -320,6 +322,7 @@ function finishRespawn(reason = "unknown") {
   state.gravityZoneTime = 0;
   state.zoneInvincibleTimer = 0;
   state.zoneInvincibleGranted = false;
+  state.currentDialog = null;
   state.choosing = false;
   updateHud();
 }
@@ -711,6 +714,12 @@ function update(dt) {
   else if (state.form === "green") updateGreen(state, input, dt);
   else if (state.form === "black") updateBlack(state, input, dt);
 
+  if (state.pendingDeathReason) {
+    const reason = state.pendingDeathReason;
+    state.pendingDeathReason = null;
+    respawn(reason);
+  }
+
   updateBoss(dt);
   updateRouteBosses(dt);
   updateFinalBosses(dt);
@@ -733,6 +742,7 @@ function update(dt) {
   activateCheckpoint();
   handleHazards();
   handleBossHazards();
+  handleNpcDialogs();
   handleRoomEdges();
 
   const roomSize = currentRoomSize();
@@ -2977,17 +2987,17 @@ function handleRoomEdges() {
   const size = currentRoomSize();
   if (state.overallPlaytest) {
     if (player.x <= 0 && player.vx < 0) {
-      if (!changeRoom("l")) player.x = 0;
+      if (!changeRoom(roomDirForScreenSide("l"))) player.x = 0;
     } else if (player.x + player.w >= size.width && player.vx > 0) {
-      if (!changeRoom("r")) player.x = size.width - player.w;
+      if (!changeRoom(roomDirForScreenSide("r"))) player.x = size.width - player.w;
     }
     if (player.y <= 0 && player.vy < 0) {
-      if (!changeRoom("u")) {
+      if (!changeRoom(roomDirForScreenSide("u"))) {
         player.y = 0;
         player.vy = Math.max(0, player.vy);
       }
     } else if (player.y + player.h >= size.height && player.vy > 0) {
-      if (!changeRoom("d")) {
+      if (!changeRoom(roomDirForScreenSide("d"))) {
         player.y = size.height - player.h;
         player.vy = Math.min(0, player.vy);
         player.onGround = true;
@@ -3006,6 +3016,45 @@ function handleRoomEdges() {
   } else if (player.y + player.h >= size.height && inBottomExit()) {
     if (!changeRoom("d")) player.y = size.height - player.h;
   }
+}
+
+function roomDirForScreenSide(side) {
+  const vectors = {
+    l: { x: -1, y: 0 },
+    r: { x: 1, y: 0 },
+    u: { x: 0, y: -1 },
+    d: { x: 0, y: 1 },
+  };
+  let { x, y } = vectors[side] || vectors.d;
+  const turns = ((-state.worldRot % 4) + 4) % 4;
+  for (let i = 0; i < turns; i += 1) {
+    const nx = -y;
+    const ny = x;
+    x = nx;
+    y = ny;
+  }
+  if (x < 0) return "l";
+  if (x > 0) return "r";
+  if (y < 0) return "u";
+  return "d";
+}
+
+function handleNpcDialogs() {
+  const { room, player } = state;
+  let active = null;
+  for (const npc of room.npcs || []) {
+    if (npc.once && npc.shown) continue;
+    const rect = transformedRect(state, npc);
+    if (!rectsOverlap(player, rect)) continue;
+    active = {
+      key: npc.key,
+      name: npc.name,
+      text: npc.text,
+    };
+    npc.shown = true;
+    break;
+  }
+  state.currentDialog = active;
 }
 
 function frame(time) {

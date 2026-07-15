@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+﻿import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 
@@ -205,3 +205,4 @@ const server = createServer((req, res) => {
 server.listen(port, () => {
   console.log(`Game server listening on http://127.0.0.1:${port}/index.html`);
 });
+

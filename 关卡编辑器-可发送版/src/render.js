@@ -75,6 +75,65 @@ function drawCoin(ctx, item) {
   ctx.restore();
 }
 
+function drawNpc(ctx, npc) {
+  const cx = npc.x + npc.w / 2;
+  ctx.save();
+  ctx.fillStyle = "#6f5aa8";
+  ctx.strokeStyle = "#2c2348";
+  ctx.lineWidth = 2;
+  ctx.fillRect(npc.x + 5, npc.y + 11, npc.w - 10, npc.h - 11);
+  ctx.strokeRect(npc.x + 5.5, npc.y + 11.5, npc.w - 11, npc.h - 12);
+  ctx.fillStyle = "#f2dfc9";
+  ctx.beginPath();
+  ctx.arc(cx, npc.y + 9, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#151820";
+  ctx.fillRect(cx - 4, npc.y + 7, 2, 2);
+  ctx.fillRect(cx + 3, npc.y + 7, 2, 2);
+  ctx.restore();
+}
+
+function wrapText(ctx, text, maxWidth) {
+  const chars = String(text || "").split("");
+  const lines = [];
+  let line = "";
+  for (const ch of chars) {
+    const next = line + ch;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = ch;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawDialogBox(ctx, state) {
+  if (!state.currentDialog?.text) return;
+  const margin = 36;
+  const width = ctx.canvas.width - margin * 2;
+  const height = 86;
+  const x = margin;
+  const y = ctx.canvas.height - height - 28;
+  ctx.save();
+  ctx.fillStyle = "rgba(17,25,35,0.88)";
+  ctx.strokeStyle = "#f4c95d";
+  ctx.lineWidth = 2;
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
+  ctx.fillStyle = "#f4c95d";
+  ctx.font = "700 14px Microsoft YaHei, sans-serif";
+  ctx.fillText(state.currentDialog.name || "NPC", x + 16, y + 22);
+  ctx.fillStyle = "#f4f2e6";
+  ctx.font = "15px Microsoft YaHei, sans-serif";
+  wrapText(ctx, state.currentDialog.text, width - 32).slice(0, 3)
+    .forEach((line, index) => ctx.fillText(line, x + 16, y + 46 + index * 18));
+  ctx.restore();
+}
+
 function drawHazard(ctx, h) {
   if (h.type === "electric") {
     ctx.strokeStyle = "#8ee6ff";
@@ -828,6 +887,7 @@ export function draw(ctx, state) {
   }
   for (const s of room.repeatSwitches || []) drawSwitch(ctx, transformedRect(state, s));
   for (const s of room.leverSwitches || []) drawLeverSwitch(ctx, transformedRect(state, s));
+  for (const npc of room.npcs || []) drawNpc(ctx, transformedRect(state, npc));
   for (const f of room.checkpoints || []) {
     const key = `checkpoint:${room.id}:${f.x},${f.y}`;
     drawCheckpoint(ctx, transformedRect(state, f), state.checkpoint?.key === key);
@@ -953,6 +1013,7 @@ export function draw(ctx, state) {
   }
   drawGravityZoneTimer(ctx, state);
   drawFinalBossForbiddenTimer(ctx, state);
+  drawDialogBox(ctx, state);
   if (state.choosing) drawChoiceOverlay(ctx, state);
   if (state.mapOpen) drawVisitedMap(ctx, state);
   ctx.restore();
@@ -1164,30 +1225,30 @@ function mapLayoutForVisited(state, visited, startX, startY) {
 
 function drawRedQte(ctx, player) {
   if (!player.redQte) return;
-  const t = Math.min(1, player.redQte.t / RED_QTE_TIME);
-  const cx = player.x + 12;
-  const cy = player.y - 12;
-  const maxR = 22;
-  const readyR = maxR * RED_QTE_READY;
-  ctx.strokeStyle = "rgba(244, 201, 93, 0.34)";
-  ctx.lineWidth = maxR - readyR;
-  ctx.beginPath();
-  ctx.arc(cx, cy, (maxR + readyR) / 2, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(232, 77, 77, 0.55)";
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(4, maxR * t), 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#f4c95d";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(cx, cy, readyR, 0, Math.PI * 2);
-  ctx.stroke();
+  const total = RED_QTE_TIME * 1.2;
+  const fill = Math.max(0, 1 - player.redQte.t / total);
+  const ready = Math.max(0.2, RED_QTE_READY - (player.redQteBonus || 0));
+  const readyFill = 1 - ready;
+  const x = player.x + player.w + 8;
+  const y = player.y - 12;
+  const w = 9;
+  const h = 42;
+  ctx.save();
+  ctx.fillStyle = "rgba(17,25,35,0.65)";
+  ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = "rgba(255,255,255,0.72)";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.fillStyle = "#e84d4d";
+  ctx.fillRect(x + 2, y + 2 + (h - 4) * (1 - fill), w - 4, (h - 4) * fill);
+  ctx.strokeStyle = "#f4c95d";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(cx, cy, maxR, 0, Math.PI * 2);
+  const lineY = y + 2 + (h - 4) * (1 - readyFill);
+  ctx.moveTo(x - 3, lineY);
+  ctx.lineTo(x + w + 3, lineY);
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawChoiceOverlay(ctx, state) {
